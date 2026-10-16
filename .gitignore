@@ -1,0 +1,26 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Go binaries, test outputs, and coverage
+/bin/
+/dist/
+/tmp/
+/api
+/cmd/api/api
+*.exe
+*.test
+*.out
+*.prof
+/coverage/
+
+# Logs
+*.log
+
+# Editor and operating system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

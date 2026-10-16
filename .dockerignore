@@ -1,0 +1,27 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Version control and editor files
+.git
+.github
+.gitignore
+.idea
+.vscode
+
+# Local build outputs, coverage, and logs
+bin/
+dist/
+tmp/
+*.exe
+*.test
+*.out
+*.prof
+coverage/
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
