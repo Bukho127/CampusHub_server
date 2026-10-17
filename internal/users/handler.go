@@ -21,7 +21,8 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
-func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+// Create registers a user and returns the public profile.
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	input, ok := decodeInput[Input](w, r)
 	if !ok {
 		return

@@ -371,6 +371,43 @@ func TestLogoutRevokesTokens(t *testing.T) {
 	}
 }
 
+func TestRegistrationRoutes(t *testing.T) {
+	for _, path := range []string{"/api/v1/auth/register", "/api/v1/users"} {
+		t.Run(path, func(t *testing.T) {
+			created := false
+			profiles := &userRepositoryStub{t: t, createFn: func(ctx context.Context, input users.CreateParams) (users.User, error) {
+				if created {
+					return users.User{}, users.ErrEmailExists
+				}
+				created = true
+				valid, err := password.Verify(input.PasswordHash, testPassword)
+				if err != nil || !valid {
+					t.Fatal("registration did not hash the password")
+				}
+				if input.Profile.Email != "bukho@example.com" || input.IdentityType != users.IdentityStudent {
+					t.Fatal("registration did not validate and normalize the profile")
+				}
+				return users.User{ID: 42, Email: input.Profile.Email, Role: users.RoleUser, PasswordHash: input.PasswordHash}, nil
+			}}
+			router := authenticationRouter(t, &authRepositoryStub{}, profiles)
+			body := userCreationBody("Bukho", " BUKHO@example.com ", testPassword)
+			response := authRequest(router, "POST", path, body, "")
+			if response.Code != http.StatusCreated || !created || response.Header().Get("Location") != "/api/v1/users/42" {
+				t.Fatalf("public registration failed: %d %s", response.Code, response.Body)
+			}
+			assertNoCredentials(t, response.Body.Bytes())
+			response = authRequest(router, "POST", path, userBodyWith(body, "role", "admin"), "")
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("registration accepted a client-supplied role: %d", response.Code)
+			}
+			response = authRequest(router, "POST", path, body, "")
+			if response.Code != http.StatusConflict {
+				t.Fatalf("duplicate email returned %d, want 409", response.Code)
+			}
+		})
+	}
+}
+
 func TestAuthorizationHeaderAndPublicRoutes(t *testing.T) {
 	router := authenticationRouter(t, &authRepositoryStub{}, &userRepositoryStub{t: t})
 	for _, header := range [][]string{nil, {"Basic anything"}, {"Bearer"}, {"Bearer one two"}, {"Bearer one", "Bearer two"}} {
@@ -387,8 +424,10 @@ func TestAuthorizationHeaderAndPublicRoutes(t *testing.T) {
 	if response := authRequest(router, "GET", "/healthz", "", ""); response.Code != 200 {
 		t.Fatal("health endpoint unexpectedly requires authentication")
 	}
-	if response := authRequest(router, "POST", "/api/v1/users", "{}", ""); response.Code != 400 {
-		t.Fatal("registration should reach public input validation")
+	for _, path := range []string{"/api/v1/auth/register", "/api/v1/users"} {
+		if response := authRequest(router, "POST", path, "{}", ""); response.Code != 400 {
+			t.Fatalf("%s should reach public input validation", path)
+		}
 	}
 }
 

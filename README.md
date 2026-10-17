@@ -41,7 +41,15 @@ Local configuration and Compose publish the API on loopback. Registration, login
 
 JWT_SECRET stays on the server. It signs access tokens with HS256 and validates their signatures. Tokens require the campus-hub issuer, campus-hub-api audience, an access token purpose, user ID, token version, token ID, issued/not-before timestamps, and expiration. They last 15 minutes with a five-second clock tolerance. Validation uses a fixed algorithm allowlist, following the [Go JWT library guidance](https://golang-jwt.github.io/jwt/usage/parse/).
 
-Log in with the account's existing password:
+Register an account (no Bearer token required):
+
+~~~sh
+curl -i http://127.0.0.1:8080/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"first_name":"Bukho","last_name":"Mabhula","display_name":"Bukho Mabhula","email":"bukho@example.com","password":"a long example passphrase","identity_type":"student"}'
+~~~
+
+Registration returns 201, the public profile, and a Location header. POST /api/v1/users remains an equivalent endpoint. Both use the same validation and Argon2id password hashing. Registration does not issue a token; log in afterward:
 
 ~~~sh
 curl -i http://127.0.0.1:8080/api/v1/auth/login \
@@ -60,6 +68,7 @@ Use the user_id returned by login in the URL. The server accepts tokens from the
 
 | Endpoint | Permission |
 | --- | --- |
+| POST /api/v1/auth/register | Public registration; role always defaults to user |
 | POST /api/v1/users | Public registration; role always defaults to user |
 | POST /api/v1/auth/login | Public; active account with a valid password |
 | GET /healthz | Public |
