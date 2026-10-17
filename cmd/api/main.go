@@ -3,67 +3,71 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log"
-	"net/url"
+	"log/slog"
+	"net/http"
 	"os"
-	"strings"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Bukho127/CampusHub_server/internal/config"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/Bukho127/CampusHub_server/internal/database"
+	"github.com/Bukho127/CampusHub_server/internal/server"
+	"github.com/Bukho127/CampusHub_server/internal/users"
 )
 
 func main() {
-	// Load .env from the working directory or a parent up to the project root.
-	err := config.LoadEnv()
-	if errors.Is(err, os.ErrNotExist) {
-		log.Println("No .env file found, reading from system environment.")
-	} else if err != nil {
-		log.Fatalf("Unable to load .env: %v", err)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	if err := run(logger); err != nil {
+		logger.Error("API stopped", "error", err)
+		os.Exit(1)
 	}
+}
 
-	// Require explicit settings instead of falling back to the Windows username.
-	for _, key := range []string{"DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE"} {
-		if strings.TrimSpace(os.Getenv(key)) == "" {
-			log.Fatalf("Missing %s: set it in the project-root .env or system environment.", key)
+func run(logger *slog.Logger) error {
+	settings, err := config.Load()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	connectCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	pool, err := database.Open(connectCtx, settings.DatabaseURL)
+	cancel()
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	service := users.NewService(users.NewPostgresRepository(pool))
+	httpServer := &http.Server{
+		Addr:              settings.Address,
+		Handler:           server.NewRouter(service, logger),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	serveErrors := make(chan error, 1)
+	go func() {
+		logger.Info("HTTP server starting", "address", settings.Address)
+		serveErrors <- httpServer.ListenAndServe()
+	}()
+	select {
+	case err := <-serveErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
 		}
+		return err
+	case <-ctx.Done():
+		stop()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			_ = httpServer.Close()
+			return err
+		}
+		logger.Info("HTTP server stopped")
+		return nil
 	}
-
-	dbUser := os.Getenv("DB_USER")
-	dbPassword := os.Getenv("DB_PASSWORD")
-	dbHost := os.Getenv("DB_HOST")
-	dbPort := os.Getenv("DB_PORT")
-	dbName := os.Getenv("DB_NAME")
-	dbSSL := os.Getenv("DB_SSLMODE")
-
-	// Escape credentials so special characters in passwords are preserved.
-	connURL := &url.URL{
-		Scheme: "postgresql",
-		User:   url.UserPassword(dbUser, dbPassword),
-		Host:   dbHost + ":" + dbPort,
-		Path:   "/" + dbName,
-	}
-	query := url.Values{}
-	query.Set("sslmode", dbSSL)
-	connURL.RawQuery = query.Encode()
-
-	// 4. Create a timeout context for network execution safety
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	fmt.Printf("Attempting to connect to host '%s' on port %s...\n", dbHost, dbPort)
-
-	dbpool, err := pgxpool.New(ctx, connURL.String())
-	if err != nil {
-		log.Fatalf("Unable to initialize connection pool config: %v\n", err)
-	}
-	defer dbpool.Close()
-
-	err = dbpool.Ping(ctx)
-	if err != nil {
-		log.Fatalf("Connection failed for user %q, database %q at %s:%s: %v", dbUser, dbName, dbHost, dbPort, err)
-	}
-
-	fmt.Println("Connection successful! Environment configuration and PostgreSQL are linked.")
 }
