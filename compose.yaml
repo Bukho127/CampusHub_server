@@ -4,10 +4,17 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${PORT:-8080}:8080"
+      - "127.0.0.1:${PORT:-8080}:8080"
     environment:
+      HOST: "0.0.0.0"
       PORT: "8080"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-campushub}:${POSTGRES_PASSWORD:-local_dev_password}@db:5432/${POSTGRES_DB:-campushub}?sslmode=disable"
+      DB_USER: ${POSTGRES_USER:-campushub}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-local_dev_password}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-campushub}
+      DB_SSLMODE: disable
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env before starting the API}"
     depends_on:
       db:
         condition: service_healthy
@@ -19,9 +26,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-campushub}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./migrations/000001_create_users.up.sql:/docker-entrypoint-initdb.d/000001_create_users.sql:ro
+      - ./migrations/000002_add_password_hash.up.sql:/docker-entrypoint-initdb.d/000002_add_password_hash.sql:ro
+      - ./migrations/000003_expand_user_schema.up.sql:/docker-entrypoint-initdb.d/000003_expand_user_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
