@@ -42,9 +42,25 @@ func NewService(repository Repository) *Service {
 }
 
 func (s *Service) Create(ctx context.Context, input Input) (User, error) {
-	profile, err := normalize(ProfileInput{Name: input.Name, Email: input.Email})
+	profile, err := normalize(input.ProfileInput)
 	if err != nil {
 		return User{}, err
+	}
+	switch input.IdentityType {
+	case IdentityStudent, IdentityFaculty, IdentityResident, IdentityVendor:
+	default:
+		return User{}, &ValidationError{"identity_type must be student, faculty, resident, or vendor"}
+	}
+	if input.InstitutionID != nil && *input.InstitutionID <= 0 {
+		return User{}, &ValidationError{"institution_id must be a positive integer"}
+	}
+	input.StudentNumber = strings.TrimSpace(input.StudentNumber)
+	if utf8.RuneCountInString(input.StudentNumber) > 128 {
+		return User{}, &ValidationError{"student_number must contain at most 128 characters"}
+	}
+	input.CampusEmail = strings.ToLower(strings.TrimSpace(input.CampusEmail))
+	if input.CampusEmail != "" && !validEmail(input.CampusEmail) {
+		return User{}, &ValidationError{"campus_email must be a valid address of at most 254 bytes"}
 	}
 	if err := ctx.Err(); err != nil {
 		return User{}, err
@@ -59,7 +75,10 @@ func (s *Service) Create(ctx context.Context, input Input) (User, error) {
 	if err := ctx.Err(); err != nil {
 		return User{}, err
 	}
-	return s.repository.Create(ctx, CreateParams{Name: profile.Name, Email: profile.Email, PasswordHash: hash})
+	return s.repository.Create(ctx, CreateParams{
+		Profile: profile, IdentityType: input.IdentityType, InstitutionID: input.InstitutionID,
+		StudentNumber: input.StudentNumber, CampusEmail: input.CampusEmail, PasswordHash: hash,
+	})
 }
 
 func (s *Service) Get(ctx context.Context, id int64) (User, error) {
@@ -102,14 +121,32 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 }
 
 func normalize(input ProfileInput) (ProfileInput, error) {
-	input.Name = strings.TrimSpace(input.Name)
+	input.FirstName = strings.TrimSpace(input.FirstName)
+	input.LastName = strings.TrimSpace(input.LastName)
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
-	if length := utf8.RuneCountInString(input.Name); length < 1 || length > 100 {
-		return ProfileInput{}, &ValidationError{"name must contain between 1 and 100 characters"}
+	input.Location = strings.TrimSpace(input.Location)
+	input.Avatar = strings.TrimSpace(input.Avatar)
+	for _, field := range []struct{ name, value string }{
+		{"first_name", input.FirstName}, {"last_name", input.LastName}, {"display_name", input.DisplayName},
+	} {
+		if length := utf8.RuneCountInString(field.value); length < 1 || length > 100 {
+			return ProfileInput{}, &ValidationError{field.name + " must contain between 1 and 100 characters"}
+		}
 	}
-	address, err := mail.ParseAddress(input.Email)
-	if err != nil || address.Address != input.Email || len(input.Email) > 254 {
+	if !validEmail(input.Email) {
 		return ProfileInput{}, &ValidationError{"email must be a valid address of at most 254 bytes"}
 	}
+	if utf8.RuneCountInString(input.Location) > 255 {
+		return ProfileInput{}, &ValidationError{"location must contain at most 255 characters"}
+	}
+	if utf8.RuneCountInString(input.Avatar) > 2048 {
+		return ProfileInput{}, &ValidationError{"avatar must contain at most 2048 characters"}
+	}
 	return input, nil
+}
+
+func validEmail(email string) bool {
+	address, err := mail.ParseAddress(email)
+	return err == nil && address.Address == email && len(email) <= 254
 }

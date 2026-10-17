@@ -21,7 +21,7 @@ func databaseEnvironment(t *testing.T) {
 	for key, value := range map[string]string{
 		"DB_USER": "postgres", "DB_PASSWORD": "pa@ss:/$?# %", "DB_HOST": "::1",
 		"DB_PORT": "5432", "DB_NAME": "campus_hub", "DB_SSLMODE": "disable",
-		"HOST": "", "PORT": "",
+		"HOST": "", "PORT": "", "JWT_SECRET": testJWTSecret,
 	} {
 		t.Setenv(key, value)
 	}
@@ -51,7 +51,7 @@ func TestDatabaseConfig(t *testing.T) {
 }
 
 func TestDatabaseConfigRejectsMissingSettings(t *testing.T) {
-	for _, key := range []string{"DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE"} {
+	for _, key := range []string{"DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE", "JWT_SECRET"} {
 		t.Run(key, func(t *testing.T) {
 			databaseEnvironment(t)
 			t.Setenv(key, "")
@@ -59,6 +59,17 @@ func TestDatabaseConfigRejectsMissingSettings(t *testing.T) {
 				t.Fatalf("got %v, want missing %s", err, key)
 			}
 		})
+	}
+}
+
+func TestConfigDoesNotExposeDotenvContents(t *testing.T) {
+	databaseEnvironment(t)
+	if err := os.WriteFile(".env", []byte("// invalid comment\nJWT_SECRET=private-test-sentinel\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load()
+	if err == nil || strings.Contains(err.Error(), "private-test-sentinel") || !strings.Contains(err.Error(), "load .env") {
+		t.Fatal("configuration error was missing or exposed dotenv contents")
 	}
 }
 

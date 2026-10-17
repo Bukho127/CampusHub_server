@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Bukho127/CampusHub_server/internal/auth"
 	"github.com/Bukho127/CampusHub_server/internal/config"
 	"github.com/Bukho127/CampusHub_server/internal/database"
 	"github.com/Bukho127/CampusHub_server/internal/server"
@@ -40,9 +41,17 @@ func run(logger *slog.Logger) error {
 	defer pool.Close()
 
 	service := users.NewService(users.NewPostgresRepository(pool))
+	tokens, err := auth.NewTokens(settings.JWTSecret)
+	if err != nil {
+		return err
+	}
+	authentication, err := auth.NewService(auth.NewPostgresRepository(pool), tokens)
+	if err != nil {
+		return err
+	}
 	httpServer := &http.Server{
 		Addr:              settings.Address,
-		Handler:           server.NewRouter(service, logger),
+		Handler:           server.NewRouter(service, authentication, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

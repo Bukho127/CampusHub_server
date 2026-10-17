@@ -17,17 +17,23 @@ import (
 type Config struct {
 	DatabaseURL string
 	Address     string
+	JWTSecret   string `json:"-"`
 }
 
 // Load reads .env when present and validates the process environment.
 func Load() (Config, error) {
 	if err := LoadEnv(); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return Config{}, fmt.Errorf("load .env: %w", err)
+		// Dotenv parse errors can include raw lines containing credentials.
+		return Config{}, errors.New("unable to load .env: check file syntax and permissions; use # for comments")
 	}
 	for _, key := range []string{"DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE"} {
 		if strings.TrimSpace(os.Getenv(key)) == "" {
 			return Config{}, fmt.Errorf("missing %s: set it in .env or the process environment", key)
 		}
+	}
+	secret := os.Getenv("JWT_SECRET")
+	if len(secret) < 32 || strings.TrimSpace(secret) == "" {
+		return Config{}, errors.New("JWT_SECRET must contain at least 32 bytes; use a randomly generated secret")
 	}
 	dbPort := strings.TrimSpace(os.Getenv("DB_PORT"))
 	if !validPort(dbPort) {
@@ -53,7 +59,7 @@ func Load() (Config, error) {
 	query := url.Values{}
 	query.Set("sslmode", strings.TrimSpace(os.Getenv("DB_SSLMODE")))
 	connection.RawQuery = query.Encode()
-	return Config{DatabaseURL: connection.String(), Address: net.JoinHostPort(host, port)}, nil
+	return Config{DatabaseURL: connection.String(), Address: net.JoinHostPort(host, port), JWTSecret: secret}, nil
 }
 
 func validPort(value string) bool {

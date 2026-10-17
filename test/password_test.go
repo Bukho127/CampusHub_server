@@ -78,7 +78,12 @@ func TestPasswordRejectsMalformedHashes(t *testing.T) {
 }
 
 func TestUserPasswordIsPrivate(t *testing.T) {
-	profile := users.User{ID: 1, Name: "Bukho", Email: "bukho@example.com", PasswordHash: "$argon2id$private"}
+	profile := users.User{
+		ID: 1, FirstName: "Bukho", LastName: "Mabhula", DisplayName: "Bukho Mabhula", Email: "bukho@example.com",
+		PasswordHash: "$argon2id$private", StudentNumber: "private-student-number", CampusEmail: "private@example.com",
+		VerifyCodeHash: "private-code", VerifyAttempts: 2, TokenVersion: 1,
+		PasswordResetTokenHash: "private-reset-token", CampusEmailVerificationTokenHash: "private-campus-token",
+	}
 	repository := &userRepositoryStub{
 		t:      t,
 		getFn:  func(context.Context, int64) (users.User, error) { return profile, nil },
@@ -108,7 +113,7 @@ func TestUserPasswordWhitespace(t *testing.T) {
 			if matched, err := password.Verify(input.PasswordHash, plaintext); err != nil || !matched {
 				t.Fatal("service modified the password before hashing")
 			}
-			return users.User{ID: 1, Name: input.Name, Email: input.Email}, nil
+			return users.User{ID: 1, FirstName: input.Profile.FirstName, LastName: input.Profile.LastName, DisplayName: input.Profile.DisplayName, Email: input.Profile.Email}, nil
 		},
 	}
 	response := userRequest(userRouter(repository), "POST", "/api/v1/users", userCreationBody("Bukho", "bukho@example.com", plaintext), "application/json")
@@ -122,7 +127,10 @@ func TestUserCreationStopsOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	service := users.NewService(&userRepositoryStub{t: t})
-	_, err := service.Create(ctx, users.Input{Name: "Bukho", Email: "bukho@example.com", Password: testPassword})
+	_, err := service.Create(ctx, users.Input{
+		ProfileInput: users.ProfileInput{FirstName: "Bukho", LastName: "Mabhula", DisplayName: "Bukho Mabhula", Email: "bukho@example.com"},
+		IdentityType: users.IdentityStudent, Password: testPassword,
+	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want canceled context", err)
 	}

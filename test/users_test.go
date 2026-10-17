@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Bukho127/CampusHub_server/internal/auth"
 	"github.com/Bukho127/CampusHub_server/internal/password"
 	"github.com/Bukho127/CampusHub_server/internal/server"
 	"github.com/Bukho127/CampusHub_server/internal/users"
@@ -68,7 +70,27 @@ func (s *userRepositoryStub) Delete(ctx context.Context, id int64) error {
 
 func userRouter(repository users.Repository) http.Handler {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return server.NewRouter(users.NewService(repository), logger)
+	// Existing CRUD tests exercise their handlers as an authenticated admin.
+	// Authorization tests use the router directly, without this test wrapper.
+	authentication, err := auth.NewService(&authRepositoryStub{
+		accountFn: func(ctx context.Context, id int64) (auth.Account, error) {
+			return auth.Account{ID: id, Role: "admin", Status: "active"}, nil
+		},
+	}, testTokens)
+	if err != nil {
+		panic(err)
+	}
+	issued, err := testTokens.Issue(1, 0)
+	if err != nil {
+		panic(err)
+	}
+	router := server.NewRouter(users.NewService(repository), authentication, logger)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			r.Header.Set("Authorization", "Bearer "+issued.AccessToken)
+		}
+		router.ServeHTTP(w, r)
+	})
 }
 
 func userRequest(router http.Handler, method, path, body, contentType string) *httptest.ResponseRecorder {
@@ -84,25 +106,54 @@ func userRequest(router http.Handler, method, path, body, contentType string) *h
 const testPassword = "a very long test password"
 
 func userCreationBody(name, email, plaintext string) string {
-	body, _ := json.Marshal(users.Input{Name: name, Email: email, Password: plaintext})
+	body, _ := json.Marshal(users.Input{
+		ProfileInput: users.ProfileInput{FirstName: name, LastName: "Mabhula", DisplayName: strings.TrimSpace(name) + " Mabhula", Email: email},
+		Password:     plaintext, IdentityType: users.IdentityStudent,
+	})
 	return string(body)
+}
+
+func userProfileBody(name, email string) string {
+	body, _ := json.Marshal(users.ProfileInput{FirstName: name, LastName: "Mabhula", DisplayName: strings.TrimSpace(name) + " Mabhula", Email: email})
+	return string(body)
+}
+
+func userBodyWith(body, field string, value any) string {
+	var fields map[string]any
+	_ = json.Unmarshal([]byte(body), &fields)
+	if value == nil {
+		delete(fields, field)
+	} else {
+		fields[field] = value
+	}
+	encoded, _ := json.Marshal(fields)
+	return string(encoded)
 }
 
 func assertNoCredentials(t *testing.T, body []byte) {
 	t.Helper()
-	if strings.Contains(string(body), "\"password\"") || strings.Contains(string(body), "\"password_hash\"") || strings.Contains(string(body), "$argon2id$") {
-		t.Fatal("response exposed a password or hash")
+	for _, field := range []string{
+		"password", "password_hash", "student_number", "verify_code_hash", "verify_code_expires", "verify_attempts",
+		"password_reset_token_hash", "password_reset_expires_at", "token_version", "campus_email",
+		"campus_email_verification_token_hash", "campus_email_verification_expires_at",
+	} {
+		if strings.Contains(string(body), "\""+field+"\"") {
+			t.Fatalf("response exposed private field %s", field)
+		}
+	}
+	if strings.Contains(string(body), "$argon2id$") {
+		t.Fatal("response exposed a password hash")
 	}
 }
 
 func TestUserAPI(t *testing.T) {
 	profile := users.User{
-		ID: 42, Name: "Bukho", Email: "bukho@example.com",
+		ID: 42, FirstName: "Bukho", LastName: "Mabhula", DisplayName: "Bukho Mabhula", Email: "bukho@example.com",
 		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	input := users.ProfileInput{Name: "Bukho", Email: "bukho@example.com"}
-	body := "{\"name\":\"  Bukho  \",\"email\":\"  BUKHO@example.com  \"}"
+	input := users.ProfileInput{FirstName: "Bukho", LastName: "Mabhula", DisplayName: "Bukho Mabhula", Email: "bukho@example.com"}
+	body := userProfileBody("  Bukho  ", "  BUKHO@example.com  ")
 	for _, method := range []string{http.MethodPost, http.MethodGet, http.MethodPut, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {
 			repository := &userRepositoryStub{t: t}
@@ -119,7 +170,7 @@ func TestUserAPI(t *testing.T) {
 			}
 			repository.createFn = func(ctx context.Context, got users.CreateParams) (users.User, error) {
 				check(ctx, profile.ID)
-				if got.Name != input.Name || got.Email != input.Email {
+				if got.Profile != input || got.IdentityType != users.IdentityStudent {
 					t.Fatal("profile fields were not normalized")
 				}
 				if matched, err := password.Verify(got.PasswordHash, testPassword); err != nil || !matched {
@@ -166,7 +217,7 @@ func TestUserAPI(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
 				t.Fatal(err)
 			}
-			if got != profile {
+			if !reflect.DeepEqual(got, profile) {
 				t.Fatalf("profile = %+v, want %+v", got, profile)
 			}
 			if method == http.MethodPost && response.Header().Get("Location") != "/api/v1/users/42" {
@@ -210,6 +261,7 @@ func TestListUsers(t *testing.T) {
 
 func TestUserAPIRejectsInvalidInput(t *testing.T) {
 	valid := userCreationBody("Bukho", "bukho@example.com", testPassword)
+	profile := userProfileBody("Bukho", "bukho@example.com")
 	for _, tc := range []struct {
 		name, method, path, body, contentType string
 		status                                int
@@ -218,28 +270,41 @@ func TestUserAPIRejectsInvalidInput(t *testing.T) {
 		{"empty body", "POST", "/api/v1/users", "", "application/json", 400},
 		{"null", "POST", "/api/v1/users", "null", "application/json", 400},
 		{"array", "POST", "/api/v1/users", "[]", "application/json", 400},
-		{"missing password", "POST", "/api/v1/users", "{\"name\":\"Bukho\",\"email\":\"bukho@example.com\"}", "application/json", 400},
+		{"missing password", "POST", "/api/v1/users", userBodyWith(valid, "password", nil), "application/json", 400},
 		{"short password", "POST", "/api/v1/users", userCreationBody("Bukho", "bukho@example.com", "too short"), "application/json", 400},
 		{"long password", "POST", "/api/v1/users", userCreationBody("Bukho", "bukho@example.com", strings.Repeat("a", 129)), "application/json", 400},
-		{"password change on profile route", "PUT", "/api/v1/users/42", valid, "application/json", 400},
-		{"client supplied hash", "POST", "/api/v1/users", "{\"name\":\"Bukho\",\"email\":\"bukho@example.com\",\"password_hash\":\"attacker supplied\"}", "application/json", 400},
-		{"unknown field", "POST", "/api/v1/users", "{\"name\":\"Bukho\",\"email\":\"bukho@example.com\",\"admin\":true}", "application/json", 400},
+		{"password change on profile route", "PUT", "/api/v1/users/42", userBodyWith(profile, "password", testPassword), "application/json", 400},
+		{"client supplied hash", "POST", "/api/v1/users", userBodyWith(valid, "password_hash", "attacker supplied"), "application/json", 400},
+		{"unknown field", "POST", "/api/v1/users", userBodyWith(valid, "admin", true), "application/json", 400},
 		{"extra JSON", "POST", "/api/v1/users", valid + " {}", "application/json", 400},
 		{"trailing garbage", "POST", "/api/v1/users", valid + "invalid", "application/json", 400},
-		{"wrong field type", "POST", "/api/v1/users", "{\"name\":123,\"email\":\"a@example.com\"}", "application/json", 400},
-		{"blank name", "POST", "/api/v1/users", "{\"name\":\"  \",\"email\":\"a@example.com\"}", "application/json", 400},
-		{"long name", "POST", "/api/v1/users", "{\"name\":\"" + strings.Repeat("a", 101) + "\",\"email\":\"a@example.com\"}", "application/json", 400},
-		{"invalid email", "POST", "/api/v1/users", "{\"name\":\"A\",\"email\":\"bad\"}", "application/json", 400},
-		{"display address", "POST", "/api/v1/users", "{\"name\":\"A\",\"email\":\"A <a@example.com>\"}", "application/json", 400},
-		{"long email", "POST", "/api/v1/users", "{\"name\":\"A\",\"email\":\"" + strings.Repeat("a", 250) + "@example.com\"}", "application/json", 400},
-		{"missing name on replacement", "PUT", "/api/v1/users/42", "{\"email\":\"a@example.com\"}", "application/json", 400},
+		{"wrong field type", "POST", "/api/v1/users", userBodyWith(valid, "first_name", 123), "application/json", 400},
+		{"missing first name", "POST", "/api/v1/users", userBodyWith(valid, "first_name", nil), "application/json", 400},
+		{"blank first name", "POST", "/api/v1/users", userBodyWith(valid, "first_name", "  "), "application/json", 400},
+		{"long first name", "POST", "/api/v1/users", userBodyWith(valid, "first_name", strings.Repeat("a", 101)), "application/json", 400},
+		{"missing last name", "POST", "/api/v1/users", userBodyWith(valid, "last_name", nil), "application/json", 400},
+		{"long last name", "POST", "/api/v1/users", userBodyWith(valid, "last_name", strings.Repeat("a", 101)), "application/json", 400},
+		{"blank display name", "POST", "/api/v1/users", userBodyWith(valid, "display_name", " "), "application/json", 400},
+		{"long display name", "POST", "/api/v1/users", userBodyWith(valid, "display_name", strings.Repeat("a", 101)), "application/json", 400},
+		{"invalid email", "POST", "/api/v1/users", userBodyWith(valid, "email", "bad"), "application/json", 400},
+		{"display address", "POST", "/api/v1/users", userBodyWith(valid, "email", "A <a@example.com>"), "application/json", 400},
+		{"long email", "POST", "/api/v1/users", userBodyWith(valid, "email", strings.Repeat("a", 250)+"@example.com"), "application/json", 400},
+		{"missing identity", "POST", "/api/v1/users", userBodyWith(valid, "identity_type", nil), "application/json", 400},
+		{"invalid identity", "POST", "/api/v1/users", userBodyWith(valid, "identity_type", "admin"), "application/json", 400},
+		{"invalid institution", "POST", "/api/v1/users", userBodyWith(valid, "institution_id", -1), "application/json", 400},
+		{"zero institution", "POST", "/api/v1/users", userBodyWith(valid, "institution_id", 0), "application/json", 400},
+		{"invalid campus email", "POST", "/api/v1/users", userBodyWith(valid, "campus_email", "invalid"), "application/json", 400},
+		{"long student number", "POST", "/api/v1/users", userBodyWith(valid, "student_number", strings.Repeat("1", 129)), "application/json", 400},
+		{"long location", "POST", "/api/v1/users", userBodyWith(valid, "location", strings.Repeat("a", 256)), "application/json", 400},
+		{"long avatar", "POST", "/api/v1/users", userBodyWith(valid, "avatar", strings.Repeat("a", 2049)), "application/json", 400},
+		{"missing first name on replacement", "PUT", "/api/v1/users/42", userBodyWith(profile, "first_name", nil), "application/json", 400},
 		{"missing content type", "POST", "/api/v1/users", valid, "", 415},
 		{"wrong content type", "POST", "/api/v1/users", valid, "text/plain", 415},
-		{"large body", "POST", "/api/v1/users", "{\"name\":\"" + strings.Repeat("a", 17000) + "\",\"email\":\"a@example.com\"}", "application/json", 413},
+		{"large body", "POST", "/api/v1/users", userBodyWith(valid, "first_name", strings.Repeat("a", 17000)), "application/json", 413},
 		{"large trailing whitespace", "POST", "/api/v1/users", valid + strings.Repeat(" ", 17000), "application/json", 413},
 		{"bad id", "GET", "/api/v1/users/abc", "", "", 400},
 		{"zero id", "DELETE", "/api/v1/users/0", "", "", 400},
-		{"negative id", "PUT", "/api/v1/users/-1", valid, "application/json", 400},
+		{"negative id", "PUT", "/api/v1/users/-1", profile, "application/json", 400},
 		{"id overflow", "GET", "/api/v1/users/999999999999999999999", "", "", 400},
 		{"bad limit", "GET", "/api/v1/users?limit=abc", "", "", 400},
 		{"empty limit", "GET", "/api/v1/users?limit=", "", "", 400},
@@ -249,7 +314,7 @@ func TestUserAPIRejectsInvalidInput(t *testing.T) {
 		{"large offset", "GET", "/api/v1/users?offset=2147483648", "", "", 400},
 		{"bad offset", "GET", "/api/v1/users?offset=abc", "", "", 400},
 		{"repeated limit", "GET", "/api/v1/users?limit=1&limit=2", "", "", 400},
-		{"unsupported method", "PATCH", "/api/v1/users/42", valid, "application/json", 405},
+		{"unsupported method", "PATCH", "/api/v1/users/42", profile, "application/json", 405},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			response := userRequest(userRouter(&userRepositoryStub{t: t}), tc.method, tc.path, tc.body, tc.contentType)
@@ -257,6 +322,27 @@ func TestUserAPIRejectsInvalidInput(t *testing.T) {
 				t.Fatalf("status = %d, want %d; body = %s", response.Code, tc.status, response.Body)
 			}
 		})
+	}
+}
+
+func TestUserAPIRejectsManagedFields(t *testing.T) {
+	for _, field := range []string{
+		"role", "status", "email_verified", "email_verification_status", "vendor_verification_status",
+		"campus_email_verification_status", "rating", "review_count", "token_version",
+		"verify_attempts", "verify_code_hash", "password_reset_token_hash", "ban_reason", "banned_until", "deleted_at",
+	} {
+		for _, method := range []string{"POST", "PUT"} {
+			t.Run(method+"/"+field, func(t *testing.T) {
+				path, body := "/api/v1/users", userCreationBody("Bukho", "bukho@example.com", testPassword)
+				if method == "PUT" {
+					path, body = "/api/v1/users/42", userProfileBody("Bukho", "bukho@example.com")
+				}
+				response := userRequest(userRouter(&userRepositoryStub{t: t}), method, path, userBodyWith(body, field, "client supplied"), "application/json")
+				if response.Code != 400 {
+					t.Fatalf("managed field %s was accepted: %d", field, response.Code)
+				}
+			})
+		}
 	}
 }
 
@@ -284,7 +370,7 @@ func TestUserAPIErrors(t *testing.T) {
 			repository.updateFn = func(context.Context, int64, users.ProfileInput) (users.User, error) { return result() }
 			repository.deleteFn = func(context.Context, int64) error { called = true; return tc.err }
 			repository.listFn = func(context.Context, int, int) ([]users.User, error) { called = true; return nil, tc.err }
-			requestBody := "{\"name\":\"A\",\"email\":\"a@example.com\"}"
+			requestBody := userProfileBody("A", "a@example.com")
 			if tc.method == http.MethodPost {
 				requestBody = userCreationBody("A", "a@example.com", testPassword)
 			}

@@ -1,12 +1,16 @@
 package users
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/Bukho127/CampusHub_server/internal/middleware"
+)
 
 // RegisterRoutes adds the user profile endpoints to mux.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+func (h *Handler) RegisterRoutes(mux *http.ServeMux, authorization *middleware.Auth) {
 	mux.HandleFunc("POST /api/v1/users", h.create)
-	mux.HandleFunc("GET /api/v1/users", h.list)
-	mux.HandleFunc("GET /api/v1/users/{id}", h.get)
-	mux.HandleFunc("PUT /api/v1/users/{id}", h.update)
-	mux.HandleFunc("DELETE /api/v1/users/{id}", h.delete)
+	mux.Handle("GET /api/v1/users", authorization.Require(authorization.Admin(http.HandlerFunc(h.list))))
+	mux.Handle("GET /api/v1/users/{id}", authorization.Require(authorization.OwnerOrAdmin(http.HandlerFunc(h.get))))
+	mux.Handle("PUT /api/v1/users/{id}", authorization.Require(authorization.OwnerOrAdmin(http.HandlerFunc(h.update))))
+	mux.Handle("DELETE /api/v1/users/{id}", authorization.Require(authorization.OwnerOrAdmin(http.HandlerFunc(h.delete))))
 }

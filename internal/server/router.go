@@ -6,13 +6,17 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Bukho127/CampusHub_server/internal/auth"
+	"github.com/Bukho127/CampusHub_server/internal/middleware"
 	"github.com/Bukho127/CampusHub_server/internal/users"
 )
 
 // NewRouter wires application endpoints and bounds request processing time.
-func NewRouter(service *users.Service, logger *slog.Logger) http.Handler {
+func NewRouter(service *users.Service, authentication *auth.Service, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
-	users.NewHandler(service, logger).RegisterRoutes(mux)
+	authorization := middleware.NewAuth(authentication, logger)
+	users.NewHandler(service, logger).RegisterRoutes(mux, authorization)
+	auth.NewHandler(authentication, logger).RegisterRoutes(mux, authorization.Require)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("{\"status\":\"ok\"}\n"))
