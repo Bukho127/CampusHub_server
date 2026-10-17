@@ -9,6 +9,8 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+
+	"github.com/Bukho127/CampusHub_server/internal/auth"
 )
 
 // Handler serves the user profile HTTP API.
@@ -23,17 +25,48 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 
 // Create registers a user and returns the public profile.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	input, ok := decodeInput[Input](w, r)
+	profile, ok := h.create(w, r)
 	if !ok {
-		return
-	}
-	profile, err := h.service.Create(r.Context(), input)
-	if err != nil {
-		h.writeError(w, err)
 		return
 	}
 	w.Header().Set("Location", "/api/v1/users/"+strconv.FormatInt(profile.ID, 10))
 	writeJSON(w, http.StatusCreated, profile)
+}
+
+// RegistrationResponse includes an access token and the new public profile.
+type RegistrationResponse struct {
+	auth.TokenResponse
+	User User `json:"user"`
+}
+
+// Register creates an account and starts a session for that new account only.
+func (h *Handler) Register(authentication *auth.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		profile, ok := h.create(w, r)
+		if !ok {
+			return
+		}
+		token, err := authentication.StartSession(r.Context(), profile.ID)
+		if err != nil {
+			h.writeError(w, err)
+			return
+		}
+		w.Header().Set("Location", "/api/v1/users/"+strconv.FormatInt(profile.ID, 10))
+		writeJSON(w, http.StatusCreated, RegistrationResponse{TokenResponse: token, User: profile})
+	})
+}
+
+func (h *Handler) create(w http.ResponseWriter, r *http.Request) (User, bool) {
+	input, ok := decodeInput[Input](w, r)
+	if !ok {
+		return User{}, false
+	}
+	profile, err := h.service.Create(r.Context(), input)
+	if err != nil {
+		h.writeError(w, err)
+		return User{}, false
+	}
+	return profile, true
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

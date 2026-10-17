@@ -375,6 +375,7 @@ func TestRegistrationRoutes(t *testing.T) {
 	for _, path := range []string{"/api/v1/auth/register", "/api/v1/users"} {
 		t.Run(path, func(t *testing.T) {
 			created := false
+			account := auth.Account{ID: 42, Role: "user", Status: "active", TokenVersion: 3}
 			profiles := &userRepositoryStub{t: t, createFn: func(ctx context.Context, input users.CreateParams) (users.User, error) {
 				if created {
 					return users.User{}, users.ErrEmailExists
@@ -389,13 +390,42 @@ func TestRegistrationRoutes(t *testing.T) {
 				}
 				return users.User{ID: 42, Email: input.Profile.Email, Role: users.RoleUser, PasswordHash: input.PasswordHash}, nil
 			}}
-			router := authenticationRouter(t, &authRepositoryStub{}, profiles)
+			profiles.getFn = func(ctx context.Context, id int64) (users.User, error) {
+				return users.User{ID: id, Role: users.RoleUser}, nil
+			}
+			accounts := &authRepositoryStub{accountFn: func(ctx context.Context, id int64) (auth.Account, error) {
+				if !created || id != account.ID {
+					t.Fatal("session lookup did not use the newly created account")
+				}
+				return account, nil
+			}}
+			router := authenticationRouter(t, accounts, profiles)
 			body := userCreationBody("Bukho", " BUKHO@example.com ", testPassword)
 			response := authRequest(router, "POST", path, body, "")
 			if response.Code != http.StatusCreated || !created || response.Header().Get("Location") != "/api/v1/users/42" {
 				t.Fatalf("public registration failed: %d %s", response.Code, response.Body)
 			}
 			assertNoCredentials(t, response.Body.Bytes())
+			if path == "/api/v1/auth/register" {
+				var registered users.RegistrationResponse
+				if err := json.Unmarshal(response.Body.Bytes(), &registered); err != nil {
+					t.Fatal(err)
+				}
+				if registered.UserID != 42 || registered.User.ID != 42 || registered.TokenType != "Bearer" || registered.ExpiresIn != 900 {
+					t.Fatal("registration returned incorrect token metadata or profile")
+				}
+				id, version, err := testTokens.Parse(registered.AccessToken)
+				if err != nil || id != account.ID || version != account.TokenVersion {
+					t.Fatal("registration token does not match the persisted account")
+				}
+				if response := authRequest(router, "GET", "/api/v1/users/42", "", registered.AccessToken); response.Code != 200 {
+					t.Fatal("registration token cannot access the new profile")
+				}
+				account.TokenVersion++
+				if response := authRequest(router, "GET", "/api/v1/users/42", "", registered.AccessToken); response.Code != 401 {
+					t.Fatal("revoked registration token remained usable")
+				}
+			}
 			response = authRequest(router, "POST", path, userBodyWith(body, "role", "admin"), "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("registration accepted a client-supplied role: %d", response.Code)
@@ -403,6 +433,9 @@ func TestRegistrationRoutes(t *testing.T) {
 			response = authRequest(router, "POST", path, body, "")
 			if response.Code != http.StatusConflict {
 				t.Fatalf("duplicate email returned %d, want 409", response.Code)
+			}
+			if strings.Contains(response.Body.String(), "access_token") {
+				t.Fatal("duplicate registration issued a token")
 			}
 		})
 	}

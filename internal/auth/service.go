@@ -62,6 +62,25 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (TokenResponse, e
 	return s.tokens.Issue(credentials.ID, credentials.TokenVersion)
 }
 
+// StartSession issues an access token for a server-identified account after
+// registration. The caller must establish ownership before calling this method.
+func (s *Service) StartSession(ctx context.Context, id int64) (TokenResponse, error) {
+	account, err := s.repository.AccountByID(ctx, id)
+	if errors.Is(err, ErrAccountNotFound) {
+		return TokenResponse{}, ErrUnauthorized
+	}
+	if err != nil {
+		return TokenResponse{}, err
+	}
+	if !active(account) || account.ID != id {
+		return TokenResponse{}, ErrUnauthorized
+	}
+	if err := ctx.Err(); err != nil {
+		return TokenResponse{}, err
+	}
+	return s.tokens.Issue(account.ID, account.TokenVersion)
+}
+
 func (s *Service) Authenticate(ctx context.Context, raw string) (Account, error) {
 	id, version, err := s.tokens.Parse(raw)
 	if err != nil {

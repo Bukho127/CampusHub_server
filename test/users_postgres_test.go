@@ -193,6 +193,18 @@ func TestUsersPostgres(t *testing.T) {
 					}
 					return response.AccessToken
 				}
+				var registered users.RegistrationResponse
+				if err := json.Unmarshal(call("POST", "/api/v1/auth/register", userCreationBody("New", "new@example.com", testPassword), "", 201), &registered); err != nil {
+					t.Fatal(err)
+				}
+				if registered.UserID <= 0 || registered.UserID == created.ID || registered.User.ID != registered.UserID || registered.AccessToken == "" {
+					t.Fatal("registration did not return the new account and token")
+				}
+				registeredPath := fmt.Sprintf("/api/v1/users/%d", registered.UserID)
+				call("GET", registeredPath, "", registered.AccessToken, 200)
+				call("GET", path, "", registered.AccessToken, 403)
+				call("POST", "/api/v1/auth/logout", "", registered.AccessToken, 204)
+				call("GET", registeredPath, "", registered.AccessToken, 401)
 				call("GET", path, "", "", 401)
 				token := login(" BUKHO@example.com ")
 				call("GET", path, "", token, 200)

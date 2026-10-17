@@ -49,7 +49,9 @@ curl -i http://127.0.0.1:8080/api/v1/auth/register \
   -d '{"first_name":"Bukho","last_name":"Mabhula","display_name":"Bukho Mabhula","email":"bukho@example.com","password":"a long example passphrase","identity_type":"student"}'
 ~~~
 
-Registration returns 201, the public profile, and a Location header. POST /api/v1/users remains an equivalent endpoint. Both use the same validation and Argon2id password hashing. Registration does not issue a token; log in afterward:
+Registration returns 201 with access_token, token_type (Bearer), expires_in (900 seconds), user_id, and the public profile under user. The Location header points to the new profile. Use the returned token immediately on protected requests. POST /api/v1/users also creates an account with the same validation and Argon2id password hashing, and returns only the public profile.
+
+Existing accounts can log in separately:
 
 ~~~sh
 curl -i http://127.0.0.1:8080/api/v1/auth/login \

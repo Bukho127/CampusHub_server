@@ -17,7 +17,7 @@ func NewRouter(service *users.Service, authentication *auth.Service, logger *slo
 	authorization := middleware.NewAuth(authentication, logger)
 	profiles := users.NewHandler(service, logger)
 	profiles.RegisterRoutes(mux, authorization)
-	auth.NewHandler(authentication, logger).RegisterRoutes(mux, authorization.Require, http.HandlerFunc(profiles.Create))
+	auth.NewHandler(authentication, logger).RegisterRoutes(mux, authorization.Require, profiles.Register(authentication))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("{\"status\":\"ok\"}\n"))
