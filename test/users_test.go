@@ -84,7 +84,7 @@ func userRouter(repository users.Repository) http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	router := server.NewRouter(users.NewService(repository), authentication, logger)
+	router := server.NewRouter(users.NewService(repository), authentication, nil, logger)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
 			r.Header.Set("Authorization", "Bearer "+issued.AccessToken)

@@ -22,6 +22,7 @@ func databaseEnvironment(t *testing.T) {
 		"DB_USER": "postgres", "DB_PASSWORD": "pa@ss:/$?# %", "DB_HOST": "::1",
 		"DB_PORT": "5432", "DB_NAME": "campus_hub", "DB_SSLMODE": "disable",
 		"HOST": "", "PORT": "", "JWT_SECRET": testJWTSecret,
+		"MEDIA_ENABLED": "false", "MEDIA_COMPRESSION_THRESHOLD_BYTES": "",
 	} {
 		t.Setenv(key, value)
 	}

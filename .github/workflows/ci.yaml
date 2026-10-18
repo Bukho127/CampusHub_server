@@ -66,9 +66,13 @@ jobs:
       - name: Vet packages
         run: go vet ./...
 
+      - name: Install FFmpeg for image processing tests
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Test with race detection and coverage
         env:
           TEST_DATABASE_URL: postgresql://campushub_test:local_ci_password@127.0.0.1:5432/campushub_test?sslmode=disable
+          REQUIRE_FFMPEG_TESTS: "1"
         run: go test -race -count=1 -coverpkg=./internal/... -coverprofile=coverage.out ./...
 
       - name: Build packages
