@@ -1,3 +1,10 @@
+# Build the configured Valkey image with --target valkey.
+FROM valkey/valkey:9.1.2-alpine AS valkey
+
+COPY docker/valkey/valkey.conf /usr/local/etc/valkey/valkey.conf
+
+CMD ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+
 # Build the Go API.
 FROM golang:1.26.4-alpine AS builder
 
@@ -10,8 +17,8 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
 
-# Run the compiled API as a non-root user.
-FROM alpine:3
+# Keep the API last so it remains the default build target.
+FROM alpine:3 AS api
 
 RUN apk add --no-cache ca-certificates ffmpeg \
     && addgroup -S app \

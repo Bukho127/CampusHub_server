@@ -79,10 +79,14 @@ jobs:
         run: go build ./...
 
   docker:
-    name: Docker build
+    name: Docker build (${{ matrix.component }})
     needs: go
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [api, valkey]
 
     steps:
       - name: Check out repository
@@ -90,5 +94,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build API image
-        run: docker build --tag campushub-api:ci .
+      - name: Build image
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: docker build --target "$COMPONENT" --tag "campushub-${COMPONENT}:ci" .

@@ -20,7 +20,10 @@ type Handler struct {
 }
 
 func NewHandler(service *Service, logger *slog.Logger) *Handler {
-	return &Handler{service: service, logger: logger}
+	return &Handler{
+		service: service,
+		logger:  logger,
+	}
 }
 
 // Create registers a user and returns the public profile.
@@ -52,7 +55,10 @@ func (h *Handler) Register(authentication *auth.Service) http.Handler {
 			return
 		}
 		w.Header().Set("Location", "/api/v1/users/"+strconv.FormatInt(profile.ID, 10))
-		writeJSON(w, http.StatusCreated, RegistrationResponse{TokenResponse: token, User: profile})
+		writeJSON(w, http.StatusCreated, RegistrationResponse{
+			TokenResponse: token,
+			User:          profile,
+		})
 	})
 }
 
@@ -165,7 +171,11 @@ func decodeInput[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 	var zero T
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
-		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "Content-Type must be application/json"})
+		writeJSON(
+			w,
+			http.StatusUnsupportedMediaType,
+			map[string]string{"error": "Content-Type must be application/json"},
+		)
 		return zero, false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
@@ -184,7 +194,11 @@ func decodeInput[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 	if errors.As(err, &sizeError) {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body exceeds 16 KiB"})
 	} else {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be one JSON object containing only fields supported by this endpoint"})
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			map[string]string{"error": "body must be one JSON object containing only fields supported by this endpoint"},
+		)
 	}
 	return zero, false
 }

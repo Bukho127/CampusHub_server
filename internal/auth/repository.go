@@ -27,7 +27,11 @@ func (r *PostgresRepository) CredentialsByEmail(ctx context.Context, email strin
 	err := r.db.QueryRow(ctx, `
 		SELECT id, role, status, token_version, COALESCE(password_hash, '')
 		FROM users WHERE email = $1`, email).Scan(
-		&credentials.ID, &credentials.Role, &credentials.Status, &credentials.TokenVersion, &credentials.PasswordHash,
+		&credentials.ID,
+		&credentials.Role,
+		&credentials.Status,
+		&credentials.TokenVersion,
+		&credentials.PasswordHash,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrAccountNotFound
@@ -38,7 +42,10 @@ func (r *PostgresRepository) CredentialsByEmail(ctx context.Context, email strin
 func (r *PostgresRepository) AccountByID(ctx context.Context, id int64) (Account, error) {
 	var account Account
 	err := r.db.QueryRow(ctx, "SELECT id, role, status, token_version FROM users WHERE id = $1", id).Scan(
-		&account.ID, &account.Role, &account.Status, &account.TokenVersion,
+		&account.ID,
+		&account.Role,
+		&account.Status,
+		&account.TokenVersion,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrAccountNotFound

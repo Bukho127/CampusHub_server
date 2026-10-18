@@ -48,7 +48,12 @@ func (r *PostgresRepository) Get(ctx context.Context, id int64) (User, error) {
 }
 
 func (r *PostgresRepository) List(ctx context.Context, limit, offset int) ([]User, error) {
-	rows, err := r.db.Query(ctx, "SELECT "+publicColumns+" FROM users WHERE status <> 'deleted' ORDER BY id LIMIT $1 OFFSET $2", limit, offset)
+	rows, err := r.db.Query(
+		ctx,
+		"SELECT "+publicColumns+" FROM users WHERE status <> 'deleted' ORDER BY id LIMIT $1 OFFSET $2",
+		limit,
+		offset,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -99,17 +104,37 @@ func (r *PostgresRepository) Delete(ctx context.Context, id int64) error {
 func scanUser(row pgx.Row) (User, error) {
 	var profile User
 	err := row.Scan(
-		&profile.ID, &profile.FirstName, &profile.LastName, &profile.DisplayName, &profile.Email, &profile.EmailVerified,
-		&profile.InstitutionID, &profile.IdentityType, &profile.Role, &profile.Status, &profile.BanReason, &profile.BannedUntil, &profile.DeletedAt,
-		&profile.EmailVerificationStatus, &profile.VendorVerificationStatus,
-		&profile.CampusEmailVerificationStatus, &profile.CampusEmailVerifiedAt, &profile.Rating, &profile.ReviewCount,
-		&profile.Location, &profile.Avatar, &profile.CreatedAt, &profile.UpdatedAt,
+		&profile.ID,
+		&profile.FirstName,
+		&profile.LastName,
+		&profile.DisplayName,
+		&profile.Email,
+		&profile.EmailVerified,
+		&profile.InstitutionID,
+		&profile.IdentityType,
+		&profile.Role,
+		&profile.Status,
+		&profile.BanReason,
+		&profile.BannedUntil,
+		&profile.DeletedAt,
+		&profile.EmailVerificationStatus,
+		&profile.VendorVerificationStatus,
+		&profile.CampusEmailVerificationStatus,
+		&profile.CampusEmailVerifiedAt,
+		&profile.Rating,
+		&profile.ReviewCount,
+		&profile.Location,
+		&profile.Avatar,
+		&profile.CreatedAt,
+		&profile.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	var postgresError *pgconn.PgError
-	if errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "users_email_key" {
+	if errors.As(err, &postgresError) &&
+		postgresError.Code == "23505" &&
+		postgresError.ConstraintName == "users_email_key" {
 		return User{}, ErrEmailExists
 	}
 	return profile, err

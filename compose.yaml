@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: api
     ports:
       - "127.0.0.1:${PORT:-8080}:8080"
     environment:
@@ -46,5 +47,31 @@ services:
       timeout: 5s
       retries: 5
 
+  valkey:
+    image: valkey/valkey:9.1.2-alpine
+    restart: unless-stopped
+    command:
+      - valkey-server
+      - /usr/local/etc/valkey/valkey.conf
+      - --requirepass
+      - "${VALKEY_PASSWORD:?Set VALKEY_PASSWORD in .env before starting Valkey}"
+    environment:
+      VALKEYCLI_AUTH: "${VALKEY_PASSWORD:?Set VALKEY_PASSWORD in .env before starting Valkey}"
+    ports:
+      - "127.0.0.1:${VALKEY_PORT:-6380}:6379"
+    volumes:
+      - valkey_data:/data
+      - ./docker/valkey/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro
+    # Leave room above maxmemory for persistence buffers and snapshot forks.
+    mem_limit: 768m
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(valkey-cli ping)\" = PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
 volumes:
   postgres_data:
+  valkey_data:

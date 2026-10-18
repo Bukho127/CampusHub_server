@@ -31,8 +31,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
 	connectCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	pool, err := database.Open(connectCtx, settings.DatabaseURL)
 	cancel()
@@ -46,19 +48,24 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+
 	authentication, err := auth.NewService(auth.NewPostgresRepository(pool), tokens)
 	if err != nil {
 		return err
 	}
+
 	var uploads *media.Service
 	if settings.Media.Enabled {
 		storage, err := media.NewAzureStorage(media.BlobConfig{
-			AccountName: settings.Media.AccountName, AccountKey: settings.Media.AccountKey,
-			ContainerName: settings.Media.ContainerName, ServiceURL: settings.Media.BlobURL,
+			AccountName:   settings.Media.AccountName,
+			AccountKey:    settings.Media.AccountKey,
+			ContainerName: settings.Media.ContainerName,
+			ServiceURL:    settings.Media.BlobURL,
 		}, nil)
 		if err != nil {
 			return err
 		}
+
 		processor, err := media.NewFFmpeg(settings.Media.FFmpegPath)
 		if err != nil {
 			return errors.New("media requires FFmpeg; install it or set FFMPEG_PATH to the executable")
@@ -67,6 +74,7 @@ func run(logger *slog.Logger) error {
 	} else {
 		logger.Info("media disabled; configure Azure Blob Storage and set MEDIA_ENABLED=true to enable uploads")
 	}
+
 	httpServer := &http.Server{
 		Addr:              settings.Address,
 		Handler:           server.NewRouter(service, authentication, uploads, logger),
@@ -75,11 +83,13 @@ func run(logger *slog.Logger) error {
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+
 	serveErrors := make(chan error, 1)
 	go func() {
 		logger.Info("HTTP server starting", "address", settings.Address)
 		serveErrors <- httpServer.ListenAndServe()
 	}()
+
 	select {
 	case err := <-serveErrors:
 		if errors.Is(err, http.ErrServerClosed) {

@@ -16,13 +16,20 @@ type Handler struct {
 }
 
 func NewHandler(service *Service, logger *slog.Logger) *Handler {
-	return &Handler{service: service, logger: logger}
+	return &Handler{
+		service: service,
+		logger:  logger,
+	}
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
-		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "Content-Type must be application/json"})
+		writeJSON(
+			w,
+			http.StatusUnsupportedMediaType,
+			map[string]string{"error": "Content-Type must be application/json"},
+		)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
@@ -48,7 +55,11 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body exceeds 16 KiB"})
 		return
 	}
-	writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be one JSON object containing only email and password"})
+	writeJSON(
+		w,
+		http.StatusBadRequest,
+		map[string]string{"error": "body must be one JSON object containing only email and password"},
+	)
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {

@@ -18,6 +18,7 @@ func TestPasswordHash(t *testing.T) {
 		strings.Repeat("a", password.MinLength),
 		strings.Repeat("a", password.MaxLength),
 		strings.Repeat("界", 30), // More than 72 bytes: the full password must be hashed.
+
 		strings.Repeat("界", password.MaxLength),
 	} {
 		hash, err := password.Hash(plaintext)
@@ -46,7 +47,13 @@ func TestPasswordHash(t *testing.T) {
 }
 
 func TestPasswordRejectsInvalidInput(t *testing.T) {
-	for _, plaintext := range []string{"", "short", strings.Repeat("a", 14), strings.Repeat("a", 129), "\xff" + testPassword} {
+	for _, plaintext := range []string{
+		"",
+		"short",
+		strings.Repeat("a", 14),
+		strings.Repeat("a", 129),
+		"\xff" + testPassword,
+	} {
 		hash, err := password.Hash(plaintext)
 		if !errors.Is(err, password.ErrInvalidPassword) || hash != "" {
 			t.Fatal("invalid password should not produce a hash")
@@ -60,13 +67,16 @@ func TestPasswordRejectsMalformedHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, encoded := range []string{
-		"", "plaintext", valid + "$extra",
+		"",
+		"plaintext",
+		valid + "$extra",
 		strings.Replace(valid, "argon2id", "argon2i", 1),
 		strings.Replace(valid, "v=19", "v=16", 1),
 		strings.Replace(valid, "m=19456", "m=4294967295", 1),
 		strings.Replace(valid, "t=2", "t=99", 1),
 		strings.Replace(valid, "p=1", "p=0", 1),
-		valid[:len(valid)-1], valid[:len(valid)-1] + "!",
+		valid[:len(valid)-1],
+		valid[:len(valid)-1] + "!",
 	} {
 		if matched, err := password.Verify(encoded, testPassword); !errors.Is(err, password.ErrInvalidHash) || matched {
 			t.Fatal("malformed or unsupported hash was accepted")
@@ -79,10 +89,19 @@ func TestPasswordRejectsMalformedHashes(t *testing.T) {
 
 func TestUserPasswordIsPrivate(t *testing.T) {
 	profile := users.User{
-		ID: 1, FirstName: "Bukho", LastName: "Mabhula", DisplayName: "Bukho Mabhula", Email: "bukho@example.com",
-		PasswordHash: "$argon2id$private", StudentNumber: "private-student-number", CampusEmail: "private@example.com",
-		VerifyCodeHash: "private-code", VerifyAttempts: 2, TokenVersion: 1,
-		PasswordResetTokenHash: "private-reset-token", CampusEmailVerificationTokenHash: "private-campus-token",
+		ID:                               1,
+		FirstName:                        "Bukho",
+		LastName:                         "Mabhula",
+		DisplayName:                      "Bukho Mabhula",
+		Email:                            "bukho@example.com",
+		PasswordHash:                     "$argon2id$private",
+		StudentNumber:                    "private-student-number",
+		CampusEmail:                      "private@example.com",
+		VerifyCodeHash:                   "private-code",
+		VerifyAttempts:                   2,
+		TokenVersion:                     1,
+		PasswordResetTokenHash:           "private-reset-token",
+		CampusEmailVerificationTokenHash: "private-campus-token",
 	}
 	repository := &userRepositoryStub{
 		t:      t,
@@ -113,10 +132,22 @@ func TestUserPasswordWhitespace(t *testing.T) {
 			if matched, err := password.Verify(input.PasswordHash, plaintext); err != nil || !matched {
 				t.Fatal("service modified the password before hashing")
 			}
-			return users.User{ID: 1, FirstName: input.Profile.FirstName, LastName: input.Profile.LastName, DisplayName: input.Profile.DisplayName, Email: input.Profile.Email}, nil
+			return users.User{
+				ID:          1,
+				FirstName:   input.Profile.FirstName,
+				LastName:    input.Profile.LastName,
+				DisplayName: input.Profile.DisplayName,
+				Email:       input.Profile.Email,
+			}, nil
 		},
 	}
-	response := userRequest(userRouter(repository), "POST", "/api/v1/users", userCreationBody("Bukho", "bukho@example.com", plaintext), "application/json")
+	response := userRequest(
+		userRouter(repository),
+		"POST",
+		"/api/v1/users",
+		userCreationBody("Bukho", "bukho@example.com", plaintext),
+		"application/json",
+	)
 	if response.Code != 201 || !called {
 		t.Fatalf("create failed: %d %s", response.Code, response.Body)
 	}
@@ -127,10 +158,19 @@ func TestUserCreationStopsOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	service := users.NewService(&userRepositoryStub{t: t})
-	_, err := service.Create(ctx, users.Input{
-		ProfileInput: users.ProfileInput{FirstName: "Bukho", LastName: "Mabhula", DisplayName: "Bukho Mabhula", Email: "bukho@example.com"},
-		IdentityType: users.IdentityStudent, Password: testPassword,
-	})
+	_, err := service.Create(
+		ctx,
+		users.Input{
+			ProfileInput: users.ProfileInput{
+				FirstName:   "Bukho",
+				LastName:    "Mabhula",
+				DisplayName: "Bukho Mabhula",
+				Email:       "bukho@example.com",
+			},
+			IdentityType: users.IdentityStudent,
+			Password:     testPassword,
+		},
+	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want canceled context", err)
 	}

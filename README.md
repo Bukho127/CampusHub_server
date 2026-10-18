@@ -237,6 +237,87 @@ docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_E
 
 Existing volumes retain their original database credentials. Editing environment variables does not change credentials already stored in PostgreSQL.
 
+## Valkey
+
+Compose includes the Valkey project's image, valkey/valkey:9.1.2-alpine, for queue and temporary application state. Set a separate VALKEY_PASSWORD in the ignored .env file (openssl rand -hex 32 generates one). Do not reuse JWT_SECRET.
+
+Start just Valkey:
+
+~~~sh
+docker compose up -d --wait valkey
+docker compose exec valkey valkey-cli ping
+~~~
+
+The response should be PONG. VALKEYCLI_AUTH inside the container supplies the password to valkey-cli, including the health check. The [Valkey CLI documentation](https://valkey.io/topics/cli/) recommends this environment variable instead of putting passwords in CLI arguments. The local development server password is configured through Compose; Docker administrators can inspect container configuration.
+
+| Connection | Address |
+| --- | --- |
+| Go API running directly on your machine | 127.0.0.1:6380 |
+| API or worker container on this Compose network | valkey:6379 |
+
+VALKEY_PORT changes only the published host port, which defaults to 6380 to avoid conflicts with another Redis/Valkey instance on 6379. The host binding is restricted to 127.0.0.1, and the service requires authentication. This is a single local-development node. The Go API does not yet contain a Valkey client, job producers, or workers; creating the container prepares that infrastructure.
+
+Configuration lives in docker/valkey/valkey.conf:
+
+- A named valkey_data volume mounted at /data keeps files across container recreation. Removing the volume removes that data.
+- AOF is enabled with appendfsync everysec, alongside periodic RDB snapshots, following the [Valkey persistence guidance](https://valkey.io/topics/persistence/). A disaster can still lose roughly the most recent second of writes; a volume is not an off-host backup.
+- maxmemory is 256 MiB, with a 768 MiB container limit to leave room for persistence buffers and fork overhead.
+- noeviction rejects memory-growing writes when full instead of evicting queue keys. Producers must handle that error. The [Valkey eviction documentation](https://valkey.io/topics/lru-cache/) explains the policy and recommends separate instances when mixing an evictable cache with persistent data. Future product caches should use a separate instance when they need LRU/LFU eviction.
+- A health check verifies authenticated PING, restart is unless-stopped, and shutdown allows 30 seconds.
+
+Suggested Campus Hub uses, based on Valkey's documented data structures:
+
+| Use case | Mechanism | Application behavior still needed |
+| --- | --- | --- |
+| Email delivery, notification jobs, and future background image processing | [Streams and consumer groups](https://valkey.io/topics/streams-intro/) | Enqueue references/IDs, process with workers, acknowledge completed jobs, reclaim abandoned pending jobs, and define retry limits |
+| A simple first-in, first-out queue | [Lists](https://valkey.io/topics/lists/) | Define acknowledgement and recovery behavior for worker failures |
+| Live presence or notifications to connected clients | [Pub/Sub](https://valkey.io/topics/pubsub/) | Disconnected subscribers miss messages; use Streams for work that must be retained |
+| Temporary carts or short-lived lookup data | [Hashes](https://valkey.io/topics/hashes/) and [key expiry](https://valkey.io/commands/expire/) | Apply TTLs and bound memory use; retain authoritative orders/inventory in PostgreSQL |
+
+Keep image bytes in Azure Blob Storage and put media IDs in jobs. Worker processing should be idempotent because jobs can be delivered more than once. Acknowledging a stream entry does not remove it: define a retention/trimming policy that preserves entries still needed by workers.
+
+Inspect the service without printing credentials:
+
+~~~sh
+docker compose ps valkey
+docker compose logs --tail=50 valkey
+docker compose exec valkey valkey-cli INFO persistence
+~~~
+
+## Published container images
+
+The CD workflow publishes two separate images to GitHub Container Registry on pushes to main and on manual workflow_dispatch runs:
+
+| Image | Contents |
+| --- | --- |
+| ghcr.io/bukho127/campushub_server | Go API and FFmpeg, built from Dockerfile |
+| ghcr.io/bukho127/campushub_server-valkey | Valkey 9.1.2 Alpine with docker/valkey/valkey.conf bundled into the image |
+
+Both receive latest and sha-<short-commit> tags. The namespace/repository is derived from GITHUB_REPOSITORY in lowercase, so forks publish under their own names. Each image has a separate build cache. CI and CD use the named targets in the single root Dockerfile:
+
+```sh
+docker build --target api -t campushub-api .
+docker build --target valkey -t campushub-valkey .
+```
+
+The API is the default target, so `docker build .` also builds the API. Compose explicitly selects the `api` target for its API service.
+
+Publication follows [GitHub's container publishing guidance](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images), using GITHUB_TOKEN with packages: write. VALKEY_PASSWORD and .env are not included in the image or required for building it. Supply authentication at runtime as the local Compose service does. The image retains the upstream entrypoint and /data volume behavior.
+
+Local Compose uses the upstream Valkey image with our configuration mounted into it. The published Valkey image bundles that same configuration for deployment. Publishing an image does not start or update deployed containers, and the workflow will run after these changes are committed and pushed to main (or invoked manually).
+
+## Go code style
+
+Follow [Effective Go's formatting guidance](https://go.dev/doc/effective_go#formatting) and the [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments). Use gofmt for indentation and alignment. Keep larger struct literals and nested option lists on multiple lines, group related operations with blank lines, and wrap conditions when it helps readability. Go does not impose a fixed line-length limit.
+
+Format source and tests from the repository root:
+
+~~~sh
+gofmt -w cmd internal test
+~~~
+
+.editorconfig supplies Go whitespace settings for editors that support it. CI already checks gofmt output and rejects unformatted Go files.
+
 ## Tests
 
 All tests live in test/.

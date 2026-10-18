@@ -56,8 +56,15 @@ func TestUsersPostgres(t *testing.T) {
 	schemaRollback := readMigration("000003_expand_user_schema.down.sql")
 
 	for _, scenario := range []string{
-		"CRUD", "duplicate create", "duplicate update", "existing profile migration",
-		"schema rollback", "vendor creation", "account state", "database constraints", "JWT authorization",
+		"CRUD",
+		"duplicate create",
+		"duplicate update",
+		"existing profile migration",
+		"schema rollback",
+		"vendor creation",
+		"account state",
+		"database constraints",
+		"JWT authorization",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -121,7 +128,10 @@ func TestUsersPostgres(t *testing.T) {
 			if legacy {
 				var id int64
 				var hash *string
-				if err := tx.QueryRow(ctx, "SELECT id, password_hash FROM users WHERE email = $1", "existing@example.com").Scan(&id, &hash); err != nil {
+				if err := tx.QueryRow(ctx, "SELECT id, password_hash FROM users WHERE email = $1", "existing@example.com").Scan(
+					&id,
+					&hash,
+				); err != nil {
 					t.Fatal(err)
 				}
 				if hash != nil {
@@ -129,7 +139,10 @@ func TestUsersPostgres(t *testing.T) {
 				}
 				path := fmt.Sprintf("/api/v1/users/%d", id)
 				profile := decodeUser(request("GET", path, "", 200))
-				if profile.DisplayName != "Existing" || profile.FirstName != "" || profile.LastName != "" || profile.IdentityType != nil {
+				if profile.DisplayName != "Existing" ||
+					profile.FirstName != "" ||
+					profile.LastName != "" ||
+					profile.IdentityType != nil {
 					t.Fatal("migration invented or lost legacy profile data")
 				}
 				request("PUT", path, userProfileBody("Updated", "existing@example.com"), 200)
@@ -138,8 +151,11 @@ func TestUsersPostgres(t *testing.T) {
 
 			createBody := userCreationBody(" Bukho ", " BUKHO@example.com ", testPassword)
 			for field, value := range map[string]any{
-				"institution_id": 9, "student_number": " 12345 ", "campus_email": " CAMPUS@EXAMPLE.COM ",
-				"location": " Cape Town ", "avatar": " /avatars/bukho.png ",
+				"institution_id": 9,
+				"student_number": " 12345 ",
+				"campus_email":   " CAMPUS@EXAMPLE.COM ",
+				"location":       " Cape Town ",
+				"avatar":         " /avatars/bukho.png ",
 			} {
 				createBody = userBodyWith(createBody, field, value)
 			}
@@ -149,18 +165,38 @@ func TestUsersPostgres(t *testing.T) {
 				createBody = userBodyWith(createBody, "identity_type", identity)
 			}
 			created := decodeUser(request("POST", "/api/v1/users", createBody, 201))
-			if created.ID <= 0 || created.FirstName != "Bukho" || created.LastName != "Mabhula" || created.DisplayName != "Bukho Mabhula" || created.Email != "bukho@example.com" || created.CreatedAt.IsZero() || created.UpdatedAt.IsZero() {
+			if created.ID <= 0 ||
+				created.FirstName != "Bukho" ||
+				created.LastName != "Mabhula" ||
+				created.DisplayName != "Bukho Mabhula" ||
+				created.Email != "bukho@example.com" ||
+				created.CreatedAt.IsZero() ||
+				created.UpdatedAt.IsZero() {
 				t.Fatalf("unexpected stored profile: %+v", created)
 			}
-			if created.Role != users.RoleUser || created.Status != users.StatusActive || created.IdentityType == nil || *created.IdentityType != identity || created.EmailVerified ||
-				created.EmailVerificationStatus != users.VerificationUnverified || created.VendorVerificationStatus != users.VerificationUnverified ||
-				created.CampusEmailVerificationStatus != users.VerificationUnverified || created.Rating != nil || created.ReviewCount != 0 ||
-				created.InstitutionID == nil || *created.InstitutionID != 9 || created.Location != "Cape Town" || created.Avatar != "/avatars/bukho.png" {
+			if created.Role != users.RoleUser ||
+				created.Status != users.StatusActive ||
+				created.IdentityType == nil ||
+				*created.IdentityType != identity ||
+				created.EmailVerified ||
+				created.EmailVerificationStatus != users.VerificationUnverified ||
+				created.VendorVerificationStatus != users.VerificationUnverified ||
+				created.CampusEmailVerificationStatus != users.VerificationUnverified ||
+				created.Rating != nil ||
+				created.ReviewCount != 0 ||
+				created.InstitutionID == nil ||
+				*created.InstitutionID != 9 ||
+				created.Location != "Cape Town" ||
+				created.Avatar != "/avatars/bukho.png" {
 				t.Fatalf("invalid account defaults: %+v", created)
 			}
 			path := fmt.Sprintf("/api/v1/users/%d", created.ID)
 			var storedHash, studentNumber, campusEmail string
-			if err := tx.QueryRow(ctx, "SELECT password_hash, student_number, campus_email FROM users WHERE id = $1", created.ID).Scan(&storedHash, &studentNumber, &campusEmail); err != nil {
+			if err := tx.QueryRow(ctx, "SELECT password_hash, student_number, campus_email FROM users WHERE id = $1", created.ID).Scan(
+				&storedHash,
+				&studentNumber,
+				&campusEmail,
+			); err != nil {
 				t.Fatal(err)
 			}
 			if matched, err := password.Verify(storedHash, testPassword); err != nil || !matched || storedHash == testPassword {
@@ -194,10 +230,16 @@ func TestUsersPostgres(t *testing.T) {
 					return response.AccessToken
 				}
 				var registered users.RegistrationResponse
-				if err := json.Unmarshal(call("POST", "/api/v1/auth/register", userCreationBody("New", "new@example.com", testPassword), "", 201), &registered); err != nil {
+				if err := json.Unmarshal(
+					call("POST", "/api/v1/auth/register", userCreationBody("New", "new@example.com", testPassword), "", 201),
+					&registered,
+				); err != nil {
 					t.Fatal(err)
 				}
-				if registered.UserID <= 0 || registered.UserID == created.ID || registered.User.ID != registered.UserID || registered.AccessToken == "" {
+				if registered.UserID <= 0 ||
+					registered.UserID == created.ID ||
+					registered.User.ID != registered.UserID ||
+					registered.AccessToken == "" {
 					t.Fatal("registration did not return the new account and token")
 				}
 				registeredPath := fmt.Sprintf("/api/v1/users/%d", registered.UserID)
@@ -209,7 +251,13 @@ func TestUsersPostgres(t *testing.T) {
 				token := login(" BUKHO@example.com ")
 				call("GET", path, "", token, 200)
 				call("GET", "/api/v1/users", "", token, 403)
-				call("PUT", fmt.Sprintf("/api/v1/users/%d", created.ID+1000), userProfileBody("Other", "other@example.com"), token, 403)
+				call(
+					"PUT",
+					fmt.Sprintf("/api/v1/users/%d", created.ID+1000),
+					userProfileBody("Other", "other@example.com"),
+					token,
+					403,
+				)
 				call("POST", "/api/v1/auth/login", loginBody(created.Email, "wrong password"), "", 401)
 				call("POST", "/api/v1/auth/login", loginBody("unknown@example.com", testPassword), "", 401)
 				unknown, err := testTokens.Issue(created.ID+1000, 0)
@@ -233,7 +281,11 @@ func TestUsersPostgres(t *testing.T) {
 				}
 				call("GET", path, "", token, 401)
 				call("POST", "/api/v1/auth/login", loginBody(created.Email, testPassword), "", 401)
-				if _, err := tx.Exec(ctx, "UPDATE users SET status = 'active', token_version = token_version + 1 WHERE id = $1", created.ID); err != nil {
+				if _, err := tx.Exec(
+					ctx,
+					"UPDATE users SET status = 'active', token_version = token_version + 1 WHERE id = $1",
+					created.ID,
+				); err != nil {
 					t.Fatal(err)
 				}
 				call("GET", path, "", token, 401)
@@ -262,10 +314,17 @@ func TestUsersPostgres(t *testing.T) {
 				return
 			case "database constraints":
 				for _, assignment := range []string{
-					"role = 'owner'", "status = 'unknown'", "identity_type = 'alien'",
-					"email_verification_status = 'unknown'", "vendor_verification_status = 'unknown'",
-					"campus_email_verification_status = 'unknown'", "rating = -1", "rating = 5.1",
-					"review_count = -1", "verify_attempts = -1", "token_version = -1",
+					"role = 'owner'",
+					"status = 'unknown'",
+					"identity_type = 'alien'",
+					"email_verification_status = 'unknown'",
+					"vendor_verification_status = 'unknown'",
+					"campus_email_verification_status = 'unknown'",
+					"rating = -1",
+					"rating = 5.1",
+					"review_count = -1",
+					"verify_attempts = -1",
+					"token_version = -1",
 				} {
 					savepoint, err := tx.Begin(ctx)
 					if err != nil {
@@ -298,7 +357,16 @@ func TestUsersPostgres(t *testing.T) {
 				}
 				var version, attempts int64
 				var code, reset *string
-				if err := tx.QueryRow(ctx, "SELECT token_version, verify_attempts, verify_code_hash, password_reset_token_hash FROM users WHERE id = $1", created.ID).Scan(&version, &attempts, &code, &reset); err != nil {
+				if err := tx.QueryRow(
+					ctx,
+					"SELECT token_version, verify_attempts, verify_code_hash, password_reset_token_hash FROM users WHERE id = $1",
+					created.ID,
+				).Scan(
+					&version,
+					&attempts,
+					&code,
+					&reset,
+				); err != nil {
 					t.Fatal(err)
 				}
 				if version != 1 || attempts != 0 || code != nil || reset != nil {
@@ -311,7 +379,12 @@ func TestUsersPostgres(t *testing.T) {
 			if !reflect.DeepEqual(got, created) {
 				t.Fatalf("read profile = %+v, want %+v", got, created)
 			}
-			second := decodeUser(request("POST", "/api/v1/users", userCreationBody("Robert'); DROP TABLE users;--", "second@example.com", testPassword), 201))
+			second := decodeUser(request(
+				"POST",
+				"/api/v1/users",
+				userCreationBody("Robert'); DROP TABLE users;--", "second@example.com", testPassword),
+				201,
+			))
 			var secondHash string
 			if err := tx.QueryRow(ctx, "SELECT password_hash FROM users WHERE id = $1", second.ID).Scan(&secondHash); err != nil {
 				t.Fatal(err)
@@ -327,10 +400,18 @@ func TestUsersPostgres(t *testing.T) {
 				t.Fatalf("unexpected paginated profiles: %+v", page)
 			}
 			updated := decodeUser(request("PUT", path, userProfileBody("New Name", "new@example.com"), 200))
-			if updated.ID != created.ID || updated.FirstName != "New Name" || updated.Email != "new@example.com" || updated.CreatedAt != created.CreatedAt {
+			if updated.ID != created.ID ||
+				updated.FirstName != "New Name" ||
+				updated.Email != "new@example.com" ||
+				updated.CreatedAt != created.CreatedAt {
 				t.Fatalf("unexpected updated profile: %+v", updated)
 			}
-			request("PUT", path, userBodyWith(userProfileBody("New Name", "new@example.com"), "password", "a replacement password"), 400)
+			request(
+				"PUT",
+				path,
+				userBodyWith(userProfileBody("New Name", "new@example.com"), "password", "a replacement password"),
+				400,
+			)
 			var unchangedHash string
 			if err := tx.QueryRow(ctx, "SELECT password_hash FROM users WHERE id = $1", created.ID).Scan(&unchangedHash); err != nil {
 				t.Fatal(err)
@@ -342,7 +423,11 @@ func TestUsersPostgres(t *testing.T) {
 			var status string
 			var deletedAt *time.Time
 			var tokenVersion int64
-			if err := tx.QueryRow(ctx, "SELECT status, deleted_at, token_version FROM users WHERE id = $1", created.ID).Scan(&status, &deletedAt, &tokenVersion); err != nil {
+			if err := tx.QueryRow(ctx, "SELECT status, deleted_at, token_version FROM users WHERE id = $1", created.ID).Scan(
+				&status,
+				&deletedAt,
+				&tokenVersion,
+			); err != nil {
 				t.Fatal(err)
 			}
 			if status != "deleted" || deletedAt == nil || tokenVersion != 2 {

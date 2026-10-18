@@ -12,7 +12,10 @@ import (
 func TestLoadEnvFromAPIDirectory(t *testing.T) {
 	const key = "CAMPUSHUB_ENV_TEST"
 	for _, existing := range []bool{false, true} {
-		t.Run(map[bool]string{false: "loads root env", true: "preserves system env"}[existing], func(t *testing.T) {
+		t.Run(map[bool]string{
+			false: "loads root env",
+			true:  "preserves system env",
+		}[existing], func(t *testing.T) {
 			root := t.TempDir()
 			apiDir := filepath.Join(root, "cmd", "api")
 			if err := os.MkdirAll(apiDir, 0755); err != nil {

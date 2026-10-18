@@ -19,7 +19,10 @@ type Handler struct {
 }
 
 func NewHandler(service *Service, logger *slog.Logger) *Handler {
-	return &Handler{service: service, logger: logger}
+	return &Handler{
+		service: service,
+		logger:  logger,
+	}
 }
 
 func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
@@ -29,14 +32,20 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	kind, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || kind != "multipart/form-data" {
-		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "Content-Type must be multipart/form-data"})
+		writeJSON(
+			w,
+			http.StatusUnsupportedMediaType,
+			map[string]string{"error": "Content-Type must be multipart/form-data"},
+		)
 		return
 	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadBytes+(64<<10))
 	err = r.ParseMultipartForm(1 << 20)
 	if r.MultipartForm != nil {
 		defer r.MultipartForm.RemoveAll()
 	}
+
 	if err != nil {
 		var maxError *http.MaxBytesError
 		if errors.As(err, &maxError) {
@@ -46,21 +55,29 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
 	form := r.MultipartForm
 	if len(form.Value) != 0 || len(form.File) != 1 || len(form.File["file"]) != 1 {
-		writeJSON(w, 400, map[string]string{"error": "provide exactly one image in the file field; extra fields are not supported"})
+		writeJSON(
+			w,
+			400,
+			map[string]string{"error": "provide exactly one image in the file field; extra fields are not supported"},
+		)
 		return
 	}
+
 	header := form.File["file"][0]
 	if header.Size > MaxUploadBytes {
 		h.writeError(w, ErrTooLarge)
 		return
 	}
+
 	input, err := header.Open()
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
+
 	defer input.Close()
 	account, _ := auth.AccountFromContext(r.Context())
 	f, err := h.service.Upload(r.Context(), account, header.Filename, input)
@@ -68,6 +85,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+
 	w.Header().Set("Location", "/api/v1/media/"+f.ID)
 	writeJSON(w, http.StatusCreated, f)
 }
@@ -98,16 +116,19 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			*target = value
 		}
 	}
+
 	if limit < 1 || limit > 100 || offset < 0 || offset > 2147483647 {
 		writeJSON(w, 400, map[string]string{"error": "limit must be 1 to 100 and offset must be 0 to 2147483647"})
 		return
 	}
+
 	account, _ := auth.AccountFromContext(r.Context())
 	page, err := h.service.List(r.Context(), account, limit, offset)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
+
 	writeJSON(w, http.StatusOK, page)
 }
 
@@ -120,19 +141,26 @@ func (h *Handler) content(original bool) http.HandlerFunc {
 			return
 		}
 		defer stream.Close()
+
 		size := f.Size
 		disposition := "inline"
 		if original {
 			size, disposition = f.OriginalSize, "attachment"
 		}
+
 		w.Header().Set("Content-Type", f.ContentType)
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-		w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": f.FileName}))
+		w.Header().Set(
+			"Content-Disposition",
+			mime.FormatMediaType(disposition, map[string]string{"filename": f.FileName}),
+		)
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 		w.Header().Set("Accept-Ranges", "none")
+
 		if r.Method == http.MethodHead {
 			return
 		}
+
 		if _, err := io.CopyN(w, stream, size); err != nil {
 			h.logger.Error("stream media", "id", f.ID, "error", err)
 		}

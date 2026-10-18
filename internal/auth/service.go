@@ -31,7 +31,11 @@ func NewService(repository Repository, tokens *Tokens) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{repository: repository, tokens: tokens, dummyHash: hash}, nil
+	return &Service{
+		repository: repository,
+		tokens:     tokens,
+		dummyHash:  hash,
+	}, nil
 }
 
 func (s *Service) Login(ctx context.Context, input LoginInput) (TokenResponse, error) {

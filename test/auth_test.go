@@ -79,7 +79,10 @@ func authRequest(router http.Handler, method, path, body, token string) *httptes
 }
 
 func loginBody(email, plaintext string) string {
-	body, _ := json.Marshal(auth.LoginInput{Email: email, Password: plaintext})
+	body, _ := json.Marshal(auth.LoginInput{
+		Email:    email,
+		Password: plaintext,
+	})
 	return string(body)
 }
 
@@ -102,7 +105,12 @@ func TestJWTTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, version, err := testTokens.Parse(issued.AccessToken)
-	if err != nil || id != 42 || version != 3 || issued.UserID != 42 || issued.TokenType != "Bearer" || issued.ExpiresIn != 900 {
+	if err != nil ||
+		id != 42 ||
+		version != 3 ||
+		issued.UserID != 42 ||
+		issued.TokenType != "Bearer" ||
+		issued.ExpiresIn != 900 {
 		t.Fatalf("unexpected issued token metadata: id=%d, version=%d, error=%v", id, version, err)
 	}
 	another, err := testTokens.Issue(42, 3)
@@ -120,9 +128,15 @@ func signedTestToken(t *testing.T, changes map[string]any, method jwt.SigningMet
 	t.Helper()
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss": auth.TokenIssuer, "aud": auth.TokenAudience, "sub": "42",
-		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(auth.AccessTokenTTL).Unix(),
-		"jti": "test-token-id", "token_version": 0, "token_use": "access",
+		"iss":           auth.TokenIssuer,
+		"aud":           auth.TokenAudience,
+		"sub":           "42",
+		"iat":           now.Unix(),
+		"nbf":           now.Unix(),
+		"exp":           now.Add(auth.AccessTokenTTL).Unix(),
+		"jti":           "test-token-id",
+		"token_version": 0,
+		"token_use":     "access",
 	}
 	for key, value := range changes {
 		if value == nil {
@@ -208,7 +222,14 @@ func TestLogin(t *testing.T) {
 				if tc.missing {
 					return auth.Credentials{}, auth.ErrAccountNotFound
 				}
-				return auth.Credentials{Account: auth.Account{ID: 42, Role: "user", Status: tc.status}, PasswordHash: tc.hash}, nil
+				return auth.Credentials{
+					Account: auth.Account{
+						ID:     42,
+						Role:   "user",
+						Status: tc.status,
+					},
+					PasswordHash: tc.hash,
+				}, nil
 			}}
 			router := authenticationRouter(t, repository, &userRepositoryStub{t: t})
 			response := authRequest(router, "POST", "/api/v1/auth/login", loginBody(" BUKHO@example.com ", tc.plaintext), "")
@@ -235,7 +256,10 @@ func TestLogin(t *testing.T) {
 
 func TestLoginRejectsInvalidBodies(t *testing.T) {
 	for _, body := range []string{
-		"", "{", "null", "[]",
+		"",
+		"{",
+		"null",
+		"[]",
 		"{\"email\":\"a@example.com\",\"password\":\"x\",\"role\":\"admin\"}",
 		"{\"email\":42,\"password\":\"x\"}",
 		loginBody("a@example.com", testPassword) + " {}",
@@ -286,7 +310,11 @@ func TestUserAuthorization(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
 			accounts := &authRepositoryStub{accountFn: func(context.Context, int64) (auth.Account, error) {
-				return auth.Account{ID: 42, Role: tc.role, Status: "active"}, nil
+				return auth.Account{
+					ID:     42,
+					Role:   tc.role,
+					Status: "active",
+				}, nil
 			}}
 			profiles := &userRepositoryStub{
 				t:      t,
@@ -298,9 +326,21 @@ func TestUserAuthorization(t *testing.T) {
 				},
 				deleteFn: func(context.Context, int64) error { called = true; return nil },
 			}
-			response := authRequest(authenticationRouter(t, accounts, profiles), tc.method, tc.path, userProfileBody("Bukho", "bukho@example.com"), tc.token)
+			response := authRequest(
+				authenticationRouter(t, accounts, profiles),
+				tc.method,
+				tc.path,
+				userProfileBody("Bukho", "bukho@example.com"),
+				tc.token,
+			)
 			if response.Code != tc.status || called != (tc.status < 400) {
-				t.Fatalf("status=%d, want=%d; profile repository called=%v; body=%s", response.Code, tc.status, called, response.Body)
+				t.Fatalf(
+					"status=%d, want=%d; profile repository called=%v; body=%s",
+					response.Code,
+					tc.status,
+					called,
+					response.Body,
+				)
 			}
 			if tc.status == 401 && response.Header().Get("WWW-Authenticate") != "Bearer" {
 				t.Fatal("missing authentication challenge")
@@ -320,16 +360,39 @@ func TestAuthenticationUsesCurrentAccountState(t *testing.T) {
 		err     error
 		status  int
 	}{
-		{"banned", auth.Account{ID: 42, Role: "user", Status: "banned"}, nil, 401},
-		{"deleted", auth.Account{ID: 42, Role: "user", Status: "deleted"}, nil, 401},
-		{"revoked", auth.Account{ID: 42, Role: "user", Status: "active", TokenVersion: 1}, nil, 401},
-		{"unknown role", auth.Account{ID: 42, Role: "owner", Status: "active"}, nil, 401},
+		{"banned", auth.Account{
+			ID:     42,
+			Role:   "user",
+			Status: "banned",
+		}, nil, 401},
+		{"deleted", auth.Account{
+			ID:     42,
+			Role:   "user",
+			Status: "deleted",
+		}, nil, 401},
+		{"revoked", auth.Account{
+			ID:           42,
+			Role:         "user",
+			Status:       "active",
+			TokenVersion: 1,
+		}, nil, 401},
+		{"unknown role", auth.Account{
+			ID:     42,
+			Role:   "owner",
+			Status: "active",
+		}, nil, 401},
 		{"missing", auth.Account{}, auth.ErrAccountNotFound, 401},
 		{"database unavailable", auth.Account{}, errors.New("private database details"), 503},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			accounts := &authRepositoryStub{accountFn: func(context.Context, int64) (auth.Account, error) { return tc.account, tc.err }}
-			response := authRequest(authenticationRouter(t, accounts, &userRepositoryStub{t: t}), "GET", "/api/v1/users/42", "", issued.AccessToken)
+			response := authRequest(
+				authenticationRouter(t, accounts, &userRepositoryStub{t: t}),
+				"GET",
+				"/api/v1/users/42",
+				"",
+				issued.AccessToken,
+			)
 			if response.Code != tc.status || strings.Contains(response.Body.String(), "private database") {
 				t.Fatalf("unexpected account validation response: %d %s", response.Code, response.Body)
 			}
@@ -338,16 +401,30 @@ func TestAuthenticationUsesCurrentAccountState(t *testing.T) {
 	// Even a correctly signed token carrying an admin claim cannot override the DB role.
 	forgedRole := signedTestToken(t, map[string]any{"role": "admin"}, jwt.SigningMethodHS256, []byte(testJWTSecret))
 	accounts := &authRepositoryStub{accountFn: func(context.Context, int64) (auth.Account, error) {
-		return auth.Account{ID: 42, Role: "user", Status: "active"}, nil
+		return auth.Account{
+			ID:     42,
+			Role:   "user",
+			Status: "active",
+		}, nil
 	}}
-	response := authRequest(authenticationRouter(t, accounts, &userRepositoryStub{t: t}), "GET", "/api/v1/users", "", forgedRole)
+	response := authRequest(
+		authenticationRouter(t, accounts, &userRepositoryStub{t: t}),
+		"GET",
+		"/api/v1/users",
+		"",
+		forgedRole,
+	)
 	if response.Code != 403 {
 		t.Fatal("token role overrode the current database role")
 	}
 }
 
 func TestLogoutRevokesTokens(t *testing.T) {
-	account := auth.Account{ID: 42, Role: "user", Status: "active"}
+	account := auth.Account{
+		ID:     42,
+		Role:   "user",
+		Status: "active",
+	}
 	accounts := &authRepositoryStub{
 		accountFn: func(context.Context, int64) (auth.Account, error) { return account, nil },
 		revokeFn: func(ctx context.Context, id int64) error {
@@ -375,23 +452,39 @@ func TestRegistrationRoutes(t *testing.T) {
 	for _, path := range []string{"/api/v1/auth/register", "/api/v1/users"} {
 		t.Run(path, func(t *testing.T) {
 			created := false
-			account := auth.Account{ID: 42, Role: "user", Status: "active", TokenVersion: 3}
-			profiles := &userRepositoryStub{t: t, createFn: func(ctx context.Context, input users.CreateParams) (users.User, error) {
-				if created {
-					return users.User{}, users.ErrEmailExists
-				}
-				created = true
-				valid, err := password.Verify(input.PasswordHash, testPassword)
-				if err != nil || !valid {
-					t.Fatal("registration did not hash the password")
-				}
-				if input.Profile.Email != "bukho@example.com" || input.IdentityType != users.IdentityStudent {
-					t.Fatal("registration did not validate and normalize the profile")
-				}
-				return users.User{ID: 42, Email: input.Profile.Email, Role: users.RoleUser, PasswordHash: input.PasswordHash}, nil
-			}}
+			account := auth.Account{
+				ID:           42,
+				Role:         "user",
+				Status:       "active",
+				TokenVersion: 3,
+			}
+			profiles := &userRepositoryStub{
+				t: t,
+				createFn: func(ctx context.Context, input users.CreateParams) (users.User, error) {
+					if created {
+						return users.User{}, users.ErrEmailExists
+					}
+					created = true
+					valid, err := password.Verify(input.PasswordHash, testPassword)
+					if err != nil || !valid {
+						t.Fatal("registration did not hash the password")
+					}
+					if input.Profile.Email != "bukho@example.com" || input.IdentityType != users.IdentityStudent {
+						t.Fatal("registration did not validate and normalize the profile")
+					}
+					return users.User{
+						ID:           42,
+						Email:        input.Profile.Email,
+						Role:         users.RoleUser,
+						PasswordHash: input.PasswordHash,
+					}, nil
+				},
+			}
 			profiles.getFn = func(ctx context.Context, id int64) (users.User, error) {
-				return users.User{ID: id, Role: users.RoleUser}, nil
+				return users.User{
+					ID:   id,
+					Role: users.RoleUser,
+				}, nil
 			}
 			accounts := &authRepositoryStub{accountFn: func(ctx context.Context, id int64) (auth.Account, error) {
 				if !created || id != account.ID {
@@ -411,7 +504,10 @@ func TestRegistrationRoutes(t *testing.T) {
 				if err := json.Unmarshal(response.Body.Bytes(), &registered); err != nil {
 					t.Fatal(err)
 				}
-				if registered.UserID != 42 || registered.User.ID != 42 || registered.TokenType != "Bearer" || registered.ExpiresIn != 900 {
+				if registered.UserID != 42 ||
+					registered.User.ID != 42 ||
+					registered.TokenType != "Bearer" ||
+					registered.ExpiresIn != 900 {
 					t.Fatal("registration returned incorrect token metadata or profile")
 				}
 				id, version, err := testTokens.Parse(registered.AccessToken)

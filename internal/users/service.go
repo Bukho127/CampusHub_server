@@ -21,7 +21,9 @@ type ValidationError struct {
 	Message string
 }
 
-func (e *ValidationError) Error() string { return e.Message }
+func (e *ValidationError) Error() string {
+	return e.Message
+}
 
 // Repository stores and retrieves user profiles.
 type Repository interface {
@@ -76,8 +78,12 @@ func (s *Service) Create(ctx context.Context, input Input) (User, error) {
 		return User{}, err
 	}
 	return s.repository.Create(ctx, CreateParams{
-		Profile: profile, IdentityType: input.IdentityType, InstitutionID: input.InstitutionID,
-		StudentNumber: input.StudentNumber, CampusEmail: input.CampusEmail, PasswordHash: hash,
+		Profile:       profile,
+		IdentityType:  input.IdentityType,
+		InstitutionID: input.InstitutionID,
+		StudentNumber: input.StudentNumber,
+		CampusEmail:   input.CampusEmail,
+		PasswordHash:  hash,
 	})
 }
 
@@ -99,7 +105,11 @@ func (s *Service) List(ctx context.Context, limit, offset int) (Page, error) {
 	if profiles == nil {
 		profiles = []User{}
 	}
-	return Page{Users: profiles, Limit: limit, Offset: offset}, nil
+	return Page{
+		Users:  profiles,
+		Limit:  limit,
+		Offset: offset,
+	}, nil
 }
 
 func (s *Service) Update(ctx context.Context, id int64, input ProfileInput) (User, error) {
@@ -127,8 +137,12 @@ func normalize(input ProfileInput) (ProfileInput, error) {
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	input.Location = strings.TrimSpace(input.Location)
 	input.Avatar = strings.TrimSpace(input.Avatar)
-	for _, field := range []struct{ name, value string }{
-		{"first_name", input.FirstName}, {"last_name", input.LastName}, {"display_name", input.DisplayName},
+	for _, field := range []struct {
+		name, value string
+	}{
+		{"first_name", input.FirstName},
+		{"last_name", input.LastName},
+		{"display_name", input.DisplayName},
 	} {
 		if length := utf8.RuneCountInString(field.value); length < 1 || length > 100 {
 			return ProfileInput{}, &ValidationError{field.name + " must contain between 1 and 100 characters"}

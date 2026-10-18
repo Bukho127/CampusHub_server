@@ -19,7 +19,11 @@ func NewRouter(service *users.Service, authentication *auth.Service, uploads *me
 	authorization := middleware.NewAuth(authentication, logger)
 	profiles := users.NewHandler(service, logger)
 	profiles.RegisterRoutes(mux, authorization)
-	auth.NewHandler(authentication, logger).RegisterRoutes(mux, authorization.Require, profiles.Register(authentication))
+	auth.NewHandler(authentication, logger).RegisterRoutes(
+		mux,
+		authorization.Require,
+		profiles.Register(authentication),
+	)
 	media.NewHandler(uploads, logger).RegisterRoutes(mux, authorization)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

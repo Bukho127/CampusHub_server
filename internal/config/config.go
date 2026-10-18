@@ -37,7 +37,14 @@ func Load() (Config, error) {
 		// Dotenv parse errors can include raw lines containing credentials.
 		return Config{}, errors.New("unable to load .env: check file syntax and permissions; use # for comments")
 	}
-	for _, key := range []string{"DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE"} {
+	for _, key := range []string{
+		"DB_USER",
+		"DB_PASSWORD",
+		"DB_HOST",
+		"DB_PORT",
+		"DB_NAME",
+		"DB_SSLMODE",
+	} {
 		if strings.TrimSpace(os.Getenv(key)) == "" {
 			return Config{}, fmt.Errorf("missing %s: set it in .env or the process environment", key)
 		}
@@ -74,7 +81,12 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{DatabaseURL: connection.String(), Address: net.JoinHostPort(host, port), JWTSecret: secret, Media: media}, nil
+	return Config{
+		DatabaseURL: connection.String(),
+		Address:     net.JoinHostPort(host, port),
+		JWTSecret:   secret,
+		Media:       media,
+	}, nil
 }
 
 func loadMedia() (MediaConfig, error) {
