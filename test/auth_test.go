@@ -64,7 +64,7 @@ func authenticationRouter(t *testing.T, repository auth.Repository, profiles use
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return server.NewRouter(users.NewService(profiles), service, logger)
+	return server.NewRouter(users.NewService(profiles), service, nil, logger)
 }
 
 func authRequest(router http.Handler, method, path, body, token string) *httptest.ResponseRecorder {

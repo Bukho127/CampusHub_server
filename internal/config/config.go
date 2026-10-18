@@ -13,11 +13,22 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config contains database and HTTP server settings.
+// Config contains database, HTTP server, and media settings.
 type Config struct {
 	DatabaseURL string
 	Address     string
 	JWTSecret   string `json:"-"`
+	Media       MediaConfig
+}
+
+type MediaConfig struct {
+	Enabled              bool
+	AccountName          string
+	AccountKey           string `json:"-"`
+	ContainerName        string
+	BlobURL              string
+	FFmpegPath           string
+	CompressionThreshold int64
 }
 
 // Load reads .env when present and validates the process environment.
@@ -59,7 +70,39 @@ func Load() (Config, error) {
 	query := url.Values{}
 	query.Set("sslmode", strings.TrimSpace(os.Getenv("DB_SSLMODE")))
 	connection.RawQuery = query.Encode()
-	return Config{DatabaseURL: connection.String(), Address: net.JoinHostPort(host, port), JWTSecret: secret}, nil
+	media, err := loadMedia()
+	if err != nil {
+		return Config{}, err
+	}
+	return Config{DatabaseURL: connection.String(), Address: net.JoinHostPort(host, port), JWTSecret: secret, Media: media}, nil
+}
+
+func loadMedia() (MediaConfig, error) {
+	enabled := false
+	if value := strings.TrimSpace(os.Getenv("MEDIA_ENABLED")); value != "" {
+		var err error
+		enabled, err = strconv.ParseBool(value)
+		if err != nil {
+			return MediaConfig{}, errors.New("MEDIA_ENABLED must be true or false")
+		}
+	}
+	threshold := int64(1 << 20)
+	if value := strings.TrimSpace(os.Getenv("MEDIA_COMPRESSION_THRESHOLD_BYTES")); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 1 || parsed > 20<<20 {
+			return MediaConfig{}, errors.New("MEDIA_COMPRESSION_THRESHOLD_BYTES must be between 1 and 20971520")
+		}
+		threshold = parsed
+	}
+	return MediaConfig{
+		Enabled:              enabled,
+		AccountName:          strings.TrimSpace(os.Getenv("AZURE_STORAGE_ACCOUNT_NAME")),
+		AccountKey:           os.Getenv("AZURE_STORAGE_ACCOUNT_KEY"),
+		ContainerName:        strings.TrimSpace(os.Getenv("AZURE_STORAGE_CONTAINER_NAME")),
+		BlobURL:              strings.TrimSpace(os.Getenv("AZURE_STORAGE_BLOB_URL")),
+		FFmpegPath:           strings.TrimSpace(os.Getenv("FFMPEG_PATH")),
+		CompressionThreshold: threshold,
+	}, nil
 }
 
 func validPort(value string) bool {

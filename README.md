@@ -14,7 +14,8 @@ For a fresh database:
 psql -h localhost -p 5432 -U postgres -d campus_hub -v ON_ERROR_STOP=1 -1 \
   -f migrations/000001_create_users.up.sql \
   -f migrations/000002_add_password_hash.up.sql \
-  -f migrations/000003_expand_user_schema.up.sql
+  -f migrations/000003_expand_user_schema.up.sql \
+  -f migrations/000004_create_media.up.sql
 ~~~
 
 If migrations 000001 and 000002 were already applied:
@@ -33,7 +34,7 @@ Start the API:
 go run ./cmd/api
 ~~~
 
-The server defaults to http://127.0.0.1:8080; HOST and PORT override the address. Requests have a five-second database deadline and Ctrl+C shuts down the server.
+The server defaults to http://127.0.0.1:8080; HOST and PORT override the address. Requests have a five-second deadline; media requests allow 45 seconds for uploads, processing, and blob transfer. Ctrl+C shuts down the server.
 
 Local configuration and Compose publish the API on loopback. Registration, login, and health checks are public. The remaining user endpoints require Bearer authentication and enforce the permissions below.
 
@@ -162,6 +163,61 @@ Passwords require 15-128 Unicode characters, preserved exactly including whitesp
 
 Only the encoded hash reaches storage. Login uses constant-time password verification. Password changes and setup for legacy profiles still require dedicated authenticated flows; the general profile endpoint rejects passwords.
 
+## Media API
+
+Media uses private Azure Blob Storage for the files and PostgreSQL for ownership, dimensions, sizes, and blob identifiers. Static PNG, JPG, and JPEG are accepted. Animated PNG, GIF, SVG, video, and audio are not supported in this version. Every endpoint requires a Bearer token; the owner or an admin can read/download/delete an individual image. Listing always returns the caller's own images.
+
+| Method | Path | Result |
+| --- | --- | --- |
+| POST | /api/v1/media | Upload exactly one multipart file field named file; 201 and Location |
+| GET | /api/v1/media?limit=20&offset=0 | List caller's images, newest first; 200 |
+| GET | /api/v1/media/{id} | Image metadata and relative download URLs; 200 |
+| GET | /api/v1/media/{id}/content | Stream the smaller optimized copy, or the original when optimization is unnecessary; 200 |
+| GET | /api/v1/media/{id}/original | Download the unchanged original; 200 |
+| DELETE | /api/v1/media/{id} | Hide the metadata and remove both blobs; 204 |
+
+The content_url and original_url require the same Authorization header. A plain browser img tag cannot supply a Bearer header; fetch the content with authorization and create a temporary object URL in the frontend. URLs never contain account keys or SAS credentials. Public listing/marketplace sharing and CDN access require a separate access policy.
+
+### Image size and compression policy
+
+There is no universal industry file size. [Shopify's general image uploader](https://help.shopify.com/en/manual/online-store/images/theme-images) permits 20 MB and 20 megapixels. [Its product image guidance](https://help.shopify.com/en/manual/products/product-media/product-media-types) recommends 2048 x 2048 for square product images, with a different product-specific megapixel ceiling. [Google Photos storage saver](https://support.google.com/photos/answer/6220791) resizes images above 16 megapixels. These are platform policies, not guarantees about a suitable byte size for every image.
+
+Campus Hub accepts at most 20 MiB (20,971,520 bytes) and 20 megapixels (width x height). This is an application policy inspired by those limits; MiB differs from decimal MB. The server checks the extension and decodes the image to validate the contents, dimensions, and corruption. Browser-provided MIME types do not establish trust.
+
+Images larger than MEDIA_COMPRESSION_THRESHOLD_BYTES (default 1 MiB) are processed with FFmpeg. This threshold is our configurable optimization trigger, not an industry standard or promised output size:
+
+- Dimensions are preserved; there is no downscaling, upscaling, or cropping. Orientation correction may swap width and height.
+- PNG uses lossless compression level 9 and retains transparency.
+- JPEG uses FFmpeg quality scale 2 with 4:4:4 chroma sampling. JPEG recompression is lossy even at high quality; it cannot guarantee pixel-identical output.
+- A candidate is used only when it is valid, preserves resolution, and is smaller than the original. No repeated quality reduction tries to force a fixed kilobyte target.
+- The unchanged original is retained in the private container for recovery or future variants. An optimized upload therefore uses storage for both copies. Unoptimized images use one blob.
+
+FFmpeg runs without a shell, using server-generated temporary paths, a 20-second processing timeout, one codec thread, and a file/pipe protocol allowlist. Two uploads can be processed concurrently. Temporary files are removed after the request. Deletion first hides the database row and retains a tombstone; retrying DELETE can finish failed blob cleanup. Failed uploads attempt to remove any blobs already written. Blob storage and PostgreSQL are separate systems; persistent cleanup failures require an operational reconciliation job, which is not implemented here.
+
+### Enable media when Azure is ready
+
+Existing Azure placeholders can remain in .env. MEDIA_ENABLED defaults to false: authenticated media requests return 503 while the rest of the API works normally. There is no local-storage fallback and no fake upload success.
+
+Once you have created an Azure storage account and a container with public access disabled:
+
+1. Replace AZURE_STORAGE_ACCOUNT_NAME, AZURE_STORAGE_ACCOUNT_KEY, AZURE_STORAGE_CONTAINER_NAME, and AZURE_STORAGE_BLOB_URL in .env. The URL is the HTTPS account root (or that configured container's URL), without a SAS query string. These settings use Azure public-cloud endpoints.
+2. Install FFmpeg and place it on PATH, or set FFMPEG_PATH to its executable. Docker includes FFmpeg. Shared-key credentials are supported for your current configuration; managed identity can replace them in a future deployment.
+3. Apply migration 000004 if the first three have already run:
+
+~~~sh
+psql -h localhost -p 5432 -U postgres -d campus_hub -v ON_ERROR_STOP=1 -1 -f migrations/000004_create_media.up.sql
+~~~
+
+4. Set MEDIA_ENABLED=true and restart the API. Client construction does not provision resources or contact Azure; the first upload will report a storage failure if the account/container/credentials are not ready.
+
+~~~sh
+curl -i http://127.0.0.1:8080/api/v1/media \
+  -H 'Authorization: Bearer TOKEN_FROM_REGISTRATION_OR_LOGIN' \
+  -F 'file=@/path/to/photo.jpg'
+~~~
+
+Do not send an owner_id: the API takes ownership from the authenticated account. Metadata includes id, owner_id, file_name, content_type, original_size, size, width, height, optimized, content_url, original_url, and created_at. The API does not automatically assign the uploaded image as a user's avatar.
+
 ## Docker Compose
 
 ~~~sh
@@ -172,10 +228,11 @@ Compose supplies DB_* settings with db as the internal database host and require
 
 POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB configure Compose credentials. Local defaults are campushub, local_dev_password, and campushub. POSTGRES_PORT overrides the published database port and PORT the published API port. The API container connects to db:5432.
 
-All three up migrations run automatically when PostgreSQL initializes a fresh volume. For an existing volume, apply only missing migrations. If the first two were applied, run:
+All four up migrations run automatically when PostgreSQL initializes a fresh volume. For an existing volume, apply only missing migrations. If the first two were applied, run:
 
 ~~~sh
 docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -1 -f /docker-entrypoint-initdb.d/000003_expand_user_schema.sql'
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -1 -f /docker-entrypoint-initdb.d/000004_create_media.sql'
 ~~~
 
 Existing volumes retain their original database credentials. Editing environment variables does not change credentials already stored in PostgreSQL.
@@ -193,20 +250,24 @@ go build ./...
 PostgreSQL integration tests opt in locally. Using the project's .env in Git Bash:
 
 ~~~sh
-RUN_DATABASE_TESTS=1 go test ./test -run TestUsersPostgres -count=1 -v
+RUN_DATABASE_TESTS=1 go test ./test -run 'Test(Users|Media)Postgres' -count=1 -v
 ~~~
 
 PowerShell:
 
 ~~~powershell
 $env:RUN_DATABASE_TESTS = '1'
-go test ./test -run TestUsersPostgres -count=1 -v
+go test ./test -run 'Test(Users|Media)Postgres' -count=1 -v
 Remove-Item Env:RUN_DATABASE_TESTS
 ~~~
 
 Alternatively, set TEST_DATABASE_URL. The role needs permission to create schemas. Integration tests use an isolated schema inside a transaction and always roll it back. They cover migration and rollback, legacy data, CRUD, pagination, private-field storage, salted hashes, account defaults, database constraints, verification invalidation, soft deletion, and real JWT login/authorization/revocation. Unit tests additionally cover invalid signatures, forbidden algorithms, expired/malformed claims, ownership, admin permissions, and dotenv secret-redaction errors. Tests use a separate test signing key.
 
-CI supplies PostgreSQL and runs integration tests, race detection, coverage, vet, formatting, compilation, and a Docker image build. Local race detection requires CGO and a supported C compiler:
+CI supplies PostgreSQL and runs integration tests, race detection, coverage, vet, formatting, compilation, and a Docker image build.
+
+Media tests cover authenticated uploads, private downloads, ownership, format/size validation, optimization selection, original retention, failed-upload cleanup, deletion retries, Azure SDK request signing with a fake transport, and the media migration/rollback. No real Azure account is needed for tests. The real FFmpeg test runs when FFmpeg is installed; CI installs it and requires that test. Set FFMPEG_PATH locally if necessary, then run go test ./test -run TestFFmpegImageProcessing -v.
+
+Local race detection requires CGO and a supported C compiler:
 
 ~~~sh
 go test -race ./...

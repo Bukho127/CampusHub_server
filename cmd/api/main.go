@@ -13,6 +13,7 @@ import (
 	"github.com/Bukho127/CampusHub_server/internal/auth"
 	"github.com/Bukho127/CampusHub_server/internal/config"
 	"github.com/Bukho127/CampusHub_server/internal/database"
+	"github.com/Bukho127/CampusHub_server/internal/media"
 	"github.com/Bukho127/CampusHub_server/internal/server"
 	"github.com/Bukho127/CampusHub_server/internal/users"
 )
@@ -49,12 +50,29 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	var uploads *media.Service
+	if settings.Media.Enabled {
+		storage, err := media.NewAzureStorage(media.BlobConfig{
+			AccountName: settings.Media.AccountName, AccountKey: settings.Media.AccountKey,
+			ContainerName: settings.Media.ContainerName, ServiceURL: settings.Media.BlobURL,
+		}, nil)
+		if err != nil {
+			return err
+		}
+		processor, err := media.NewFFmpeg(settings.Media.FFmpegPath)
+		if err != nil {
+			return errors.New("media requires FFmpeg; install it or set FFMPEG_PATH to the executable")
+		}
+		uploads = media.NewService(media.NewPostgresRepository(pool), storage, processor, settings.Media.CompressionThreshold)
+	} else {
+		logger.Info("media disabled; configure Azure Blob Storage and set MEDIA_ENABLED=true to enable uploads")
+	}
 	httpServer := &http.Server{
 		Addr:              settings.Address,
-		Handler:           server.NewRouter(service, authentication, logger),
+		Handler:           server.NewRouter(service, authentication, uploads, logger),
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	serveErrors := make(chan error, 1)
