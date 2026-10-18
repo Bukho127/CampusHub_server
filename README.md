@@ -355,7 +355,9 @@ Remove-Item Env:RUN_DATABASE_TESTS
 
 Alternatively, set TEST_DATABASE_URL. The role needs permission to create schemas. Integration tests use an isolated schema inside a transaction and always roll it back. They cover migration and rollback, legacy data, CRUD, pagination, private-field storage, salted hashes, account defaults, database constraints, verification invalidation, soft deletion, and real JWT login/authorization/revocation. Unit tests additionally cover invalid signatures, forbidden algorithms, expired/malformed claims, ownership, admin permissions, and dotenv secret-redaction errors. Tests use a separate test signing key.
 
-CI supplies PostgreSQL and runs integration tests, race detection, coverage, vet, formatting, compilation, and a Docker image build.
+CI runs automatically for pull requests targeting main and pushes to main. It supplies PostgreSQL and runs integration tests, race detection, coverage, vet, formatting, compilation, and Docker builds for both the API and Valkey. The combined `Docker build` check succeeds only when Go checks and both image builds succeed; it fails if a prerequisite fails, is cancelled, or is skipped. Keep `Docker build` as the required branch protection check even if the matrix changes.
+
+Merging into main also triggers CD, which builds and publishes both images to GitHub Container Registry automatically. The workflow does not deploy or restart running containers.
 
 Media tests cover authenticated uploads, private downloads, ownership, format/size validation, optimization selection, original retention, failed-upload cleanup, deletion retries, Azure SDK request signing with a fake transport, and the media migration/rollback. No real Azure account is needed for tests. The real FFmpeg test runs when FFmpeg is installed; CI installs it and requires that test. Set FFMPEG_PATH locally if necessary, then run go test ./test -run TestFFmpegImageProcessing -v.
 
