@@ -97,4 +97,4 @@ jobs:
       - name: Build image
         env:
           COMPONENT: ${{ matrix.component }}
-        run: docker build --target "$COMPONENT" --tag "campushub-${COMPONENT}:ci" .
+        run: docker build --pull --target "$COMPONENT" --tag "campushub-${COMPONENT}:ci" .

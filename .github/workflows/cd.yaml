@@ -65,6 +65,8 @@ jobs:
           context: .
           file: Dockerfile
           target: ${{ matrix.component }}
+          pull: true
+          no-cache-filters: ${{ matrix.component }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

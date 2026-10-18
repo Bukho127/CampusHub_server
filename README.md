@@ -302,6 +302,17 @@ docker build --target valkey -t campushub-valkey .
 
 The API is the default target, so `docker build .` also builds the API. Compose explicitly selects the `api` target for its API service.
 
+The images apply available Alpine package updates during a fresh build, and the API uses Go 1.26.9 for its security fixes. CI/CD refresh base images with `--pull`, and CD rebuilds the selected runtime stage without caching its package update layer. To also bypass cached package installation layers and rescan locally, run:
+
+```sh
+docker build --pull --no-cache --target api -t campushub-api .
+docker build --pull --no-cache --target valkey -t campushub-valkey .
+docker scout cves local://campushub-api --only-severity critical,high
+docker scout cves local://campushub-valkey --only-severity critical,high
+```
+
+Rebuild and rescan regularly: changing a Dockerfile does not patch existing images or running containers. Vulnerability counts depend on the exact image digest and the scanner's current database.
+
 Publication follows [GitHub's container publishing guidance](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images), using GITHUB_TOKEN with packages: write. VALKEY_PASSWORD and .env are not included in the image or required for building it. Supply authentication at runtime as the local Compose service does. The image retains the upstream entrypoint and /data volume behavior.
 
 Local Compose uses the upstream Valkey image with our configuration mounted into it. The published Valkey image bundles that same configuration for deployment. Publishing an image does not start or update deployed containers, and the workflow will run after these changes are committed and pushed to main (or invoked manually).
