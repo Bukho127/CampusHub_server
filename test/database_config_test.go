@@ -19,10 +19,17 @@ func databaseEnvironment(t *testing.T) {
 	}
 	t.Chdir(root)
 	for key, value := range map[string]string{
-		"DB_USER": "postgres", "DB_PASSWORD": "pa@ss:/$?# %", "DB_HOST": "::1",
-		"DB_PORT": "5432", "DB_NAME": "campus_hub", "DB_SSLMODE": "disable",
-		"HOST": "", "PORT": "", "JWT_SECRET": testJWTSecret,
-		"MEDIA_ENABLED": "false", "MEDIA_COMPRESSION_THRESHOLD_BYTES": "",
+		"DB_USER":                           "postgres",
+		"DB_PASSWORD":                       "pa@ss:/$?# %",
+		"DB_HOST":                           "::1",
+		"DB_PORT":                           "5432",
+		"DB_NAME":                           "campus_hub",
+		"DB_SSLMODE":                        "disable",
+		"HOST":                              "",
+		"PORT":                              "",
+		"JWT_SECRET":                        testJWTSecret,
+		"MEDIA_ENABLED":                     "false",
+		"MEDIA_COMPRESSION_THRESHOLD_BYTES": "",
 	} {
 		t.Setenv(key, value)
 	}
@@ -39,20 +46,32 @@ func TestDatabaseConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	password, _ := connection.User.Password()
-	if password != os.Getenv("DB_PASSWORD") || connection.Host != "[::1]:5432" || settings.Address != "127.0.0.1:8080" {
+	if password != os.Getenv("DB_PASSWORD") ||
+		connection.Host != "[::1]:5432" ||
+		settings.Address != "127.0.0.1:8080" {
 		t.Fatal("credentials, IPv6 host, or HTTP defaults were not preserved")
 	}
 	parsed, err := pgxpool.ParseConfig(settings.DatabaseURL)
 	if err != nil {
 		t.Fatal("configuration is not accepted by pgx")
 	}
-	if parsed.ConnConfig.Password != password || parsed.ConnConfig.Host != "::1" || parsed.ConnConfig.Database != "campus_hub" {
+	if parsed.ConnConfig.Password != password ||
+		parsed.ConnConfig.Host != "::1" ||
+		parsed.ConnConfig.Database != "campus_hub" {
 		t.Fatal("pgx connection settings do not match the environment")
 	}
 }
 
 func TestDatabaseConfigRejectsMissingSettings(t *testing.T) {
-	for _, key := range []string{"DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE", "JWT_SECRET"} {
+	for _, key := range []string{
+		"DB_USER",
+		"DB_PASSWORD",
+		"DB_HOST",
+		"DB_PORT",
+		"DB_NAME",
+		"DB_SSLMODE",
+		"JWT_SECRET",
+	} {
 		t.Run(key, func(t *testing.T) {
 			databaseEnvironment(t)
 			t.Setenv(key, "")
@@ -69,7 +88,9 @@ func TestConfigDoesNotExposeDotenvContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := config.Load()
-	if err == nil || strings.Contains(err.Error(), "private-test-sentinel") || !strings.Contains(err.Error(), "load .env") {
+	if err == nil ||
+		strings.Contains(err.Error(), "private-test-sentinel") ||
+		!strings.Contains(err.Error(), "load .env") {
 		t.Fatal("configuration error was missing or exposed dotenv contents")
 	}
 }

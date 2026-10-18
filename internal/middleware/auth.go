@@ -17,7 +17,10 @@ type Auth struct {
 }
 
 func NewAuth(service *auth.Service, logger *slog.Logger) *Auth {
-	return &Auth{service: service, logger: logger}
+	return &Auth{
+		service: service,
+		logger:  logger,
+	}
 }
 
 func (a *Auth) Require(next http.Handler) http.Handler {

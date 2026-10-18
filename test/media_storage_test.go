@@ -21,7 +21,9 @@ import (
 
 type blobTransport func(*http.Request) (*http.Response, error)
 
-func (f blobTransport) Do(r *http.Request) (*http.Response, error) { return f(r) }
+func (f blobTransport) Do(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
 
 func TestAzureMediaStorage(t *testing.T) {
 	objects := make(map[string][]byte)
@@ -33,13 +35,20 @@ func TestAzureMediaStorage(t *testing.T) {
 			headers[http.CanonicalHeaderKey(key)] = values
 		}
 		r.Header = headers
-		if r.URL.Scheme != "https" || r.URL.Host != "campusmedia.blob.core.windows.net" || !strings.HasPrefix(r.URL.Path, "/private-media/") {
+		if r.URL.Scheme != "https" ||
+			r.URL.Host != "campusmedia.blob.core.windows.net" ||
+			!strings.HasPrefix(r.URL.Path, "/private-media/") {
 			t.Fatal("unexpected blob endpoint or duplicate container path")
 		}
 		if !strings.HasPrefix(r.Header.Get("Authorization"), "SharedKey campusmedia:") {
 			t.Fatal("blob request was not signed")
 		}
-		response := &http.Response{Request: r, Header: make(http.Header), StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}
+		response := &http.Response{
+			Request:    r,
+			Header:     make(http.Header),
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader("")),
+		}
 		response.Header.Set("ETag", `"test-etag"`)
 		response.Header.Set("Last-Modified", "Sun, 18 Oct 2026 00:00:00 GMT")
 		missing := func() {
@@ -49,7 +58,9 @@ func TestAzureMediaStorage(t *testing.T) {
 		}
 		switch r.Method {
 		case http.MethodPut:
-			if r.Header.Get("If-None-Match") != "*" || r.Header.Get("x-ms-blob-content-type") != "image/png" || r.Header.Get("x-ms-blob-cache-control") != "private, no-store" {
+			if r.Header.Get("If-None-Match") != "*" ||
+				r.Header.Get("x-ms-blob-content-type") != "image/png" ||
+				r.Header.Get("x-ms-blob-cache-control") != "private, no-store" {
 				t.Fatal("missing blob overwrite guard or content headers")
 			}
 			data, err := io.ReadAll(r.Body)
@@ -80,8 +91,10 @@ func TestAzureMediaStorage(t *testing.T) {
 		return response, nil
 	})
 	storage, err := media.NewAzureStorage(media.BlobConfig{
-		AccountName: "campusmedia", AccountKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 64)),
-		ContainerName: "private-media", ServiceURL: "https://campusmedia.blob.core.windows.net/private-media",
+		AccountName:   "campusmedia",
+		AccountKey:    base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 64)),
+		ContainerName: "private-media",
+		ServiceURL:    "https://campusmedia.blob.core.windows.net/private-media",
 	}, &azblob.ClientOptions{ClientOptions: azcore.ClientOptions{Transport: transport}})
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +137,9 @@ func TestMediaConfiguration(t *testing.T) {
 	databaseEnvironment(t)
 	t.Setenv("AZURE_STORAGE_ACCOUNT_KEY", "private-test-sentinel")
 	settings, err := config.Load()
-	if err != nil || settings.Media.Enabled || settings.Media.CompressionThreshold != media.DefaultCompressionThreshold {
+	if err != nil ||
+		settings.Media.Enabled ||
+		settings.Media.CompressionThreshold != media.DefaultCompressionThreshold {
 		t.Fatal("media must remain disabled with placeholders")
 	}
 	for _, value := range []string{"0", "-1", "20971521", "not-a-number"} {
@@ -144,7 +159,15 @@ func TestMediaConfiguration(t *testing.T) {
 		t.Fatal("invalid media enable flag accepted")
 	}
 	for _, endpoint := range []string{"http://campusmedia.blob.core.windows.net", "https://untrusted.example", "https://campusmedia.blob.core.windows.net/?sig=private-test-sentinel"} {
-		_, err := media.NewAzureStorage(media.BlobConfig{AccountName: "campusmedia", ContainerName: "private-media", AccountKey: "private-test-sentinel", ServiceURL: endpoint}, nil)
+		_, err := media.NewAzureStorage(
+			media.BlobConfig{
+				AccountName:   "campusmedia",
+				ContainerName: "private-media",
+				AccountKey:    "private-test-sentinel",
+				ServiceURL:    endpoint,
+			},
+			nil,
+		)
 		if err == nil || strings.Contains(err.Error(), "private-test-sentinel") {
 			t.Fatal("invalid endpoint accepted or secret exposed")
 		}

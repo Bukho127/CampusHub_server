@@ -21,19 +21,35 @@ type Database interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-type PostgresRepository struct{ db Database }
+type PostgresRepository struct {
+	db Database
+}
 
-func NewPostgresRepository(db Database) *PostgresRepository { return &PostgresRepository{db: db} }
+func NewPostgresRepository(db Database) *PostgresRepository {
+	return &PostgresRepository{db: db}
+}
 
 const columns = `id, owner_id, file_name, content_type, size, original_size,
     width, height, optimized, blob_key, original_blob_key, created_at, deleted_at`
 
 func (r *PostgresRepository) Create(ctx context.Context, f File) (File, error) {
-	return scanFile(r.db.QueryRow(ctx, `INSERT INTO media
+	return scanFile(r.db.QueryRow(
+		ctx,
+		`INSERT INTO media
 		(id, owner_id, file_name, content_type, size, original_size, width, height, optimized, blob_key, original_blob_key)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING `+columns,
-		f.ID, f.OwnerID, f.FileName, f.ContentType, f.Size, f.OriginalSize,
-		f.Width, f.Height, f.Optimized, f.BlobKey, f.OriginalBlobKey))
+		f.ID,
+		f.OwnerID,
+		f.FileName,
+		f.ContentType,
+		f.Size,
+		f.OriginalSize,
+		f.Width,
+		f.Height,
+		f.Optimized,
+		f.BlobKey,
+		f.OriginalBlobKey,
+	))
 }
 
 // Get includes tombstones so failed blob deletions can be retried by the owner.
@@ -42,7 +58,13 @@ func (r *PostgresRepository) Get(ctx context.Context, id string) (File, error) {
 }
 
 func (r *PostgresRepository) List(ctx context.Context, ownerID int64, limit, offset int) ([]File, error) {
-	rows, err := r.db.Query(ctx, "SELECT "+columns+" FROM media WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3", ownerID, limit, offset)
+	rows, err := r.db.Query(
+		ctx,
+		"SELECT "+columns+" FROM media WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3",
+		ownerID,
+		limit,
+		offset,
+	)
 	if err != nil {
 		return nil, err
 	}

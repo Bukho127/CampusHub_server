@@ -120,7 +120,12 @@ func imageFixture(t *testing.T, compressed bool) []byte {
 	img := image.NewNRGBA(image.Rect(0, 0, 32, 24))
 	for y := 0; y < 24; y++ {
 		for x := 0; x < 32; x++ {
-			img.SetNRGBA(x, y, color.NRGBA{R: 180, G: uint8(y), B: 50, A: uint8(80 + x)})
+			img.SetNRGBA(x, y, color.NRGBA{
+				R: 180,
+				G: uint8(y),
+				B: 50,
+				A: uint8(80 + x),
+			})
 		}
 	}
 	var data bytes.Buffer
@@ -151,13 +156,22 @@ func mediaRouter(t *testing.T, uploads *media.Service) http.Handler {
 		if id == 3 {
 			role = "admin"
 		}
-		return auth.Account{ID: id, Role: role, Status: "active"}, nil
+		return auth.Account{
+			ID:     id,
+			Role:   role,
+			Status: "active",
+		}, nil
 	}}
 	authentication, err := auth.NewService(accounts, testTokens)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return server.NewRouter(users.NewService(&userRepositoryStub{t: t}), authentication, uploads, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return server.NewRouter(
+		users.NewService(&userRepositoryStub{t: t}),
+		authentication,
+		uploads,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
 }
 
 func mediaToken(t *testing.T, id int64) string {
@@ -218,10 +232,17 @@ func TestMediaAPI(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &f); err != nil {
 		t.Fatal(err)
 	}
-	if f.OwnerID != 1 || f.Width != 32 || f.Height != 24 || f.Size != int64(len(data)) || f.Optimized || f.ContentURL == "" || f.OriginalURL == "" {
+	if f.OwnerID != 1 ||
+		f.Width != 32 ||
+		f.Height != 24 ||
+		f.Size != int64(len(data)) ||
+		f.Optimized ||
+		f.ContentURL == "" ||
+		f.OriginalURL == "" {
 		t.Fatal("invalid media metadata")
 	}
-	if strings.Contains(response.Body.String(), "blob_key") || strings.Contains(response.Body.String(), "blob.core.windows.net") {
+	if strings.Contains(response.Body.String(), "blob_key") ||
+		strings.Contains(response.Body.String(), "blob.core.windows.net") {
 		t.Fatal("private storage details exposed")
 	}
 	path := "/api/v1/media/" + f.ID
@@ -238,7 +259,10 @@ func TestMediaAPI(t *testing.T) {
 	}
 	for _, target := range []string{f.ContentURL, f.OriginalURL} {
 		got := authRequest(router, "GET", target, "", token)
-		if got.Code != 200 || !bytes.Equal(got.Body.Bytes(), data) || got.Header().Get("Content-Type") != "image/png" || got.Header().Get("X-Content-Type-Options") != "nosniff" {
+		if got.Code != 200 ||
+			!bytes.Equal(got.Body.Bytes(), data) ||
+			got.Header().Get("Content-Type") != "image/png" ||
+			got.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Fatal("download changed the image or its headers")
 		}
 		if got := authRequest(router, "HEAD", target, "", token); got.Code != 200 || got.Body.Len() != 0 {
@@ -328,7 +352,13 @@ func TestMediaUploadValidation(t *testing.T) {
 	if got := authRequest(mediaRouter(t, nil), "POST", "/api/v1/media", "", mediaToken(t, 1)); got.Code != 503 {
 		t.Fatal("placeholder storage did not fail closed")
 	}
-	for _, query := range []string{"limit=0", "limit=101", "offset=-1", "offset=2147483648", "limit=1&limit=2"} {
+	for _, query := range []string{
+		"limit=0",
+		"limit=101",
+		"offset=-1",
+		"offset=2147483648",
+		"limit=1&limit=2",
+	} {
 		if got := authRequest(router, "GET", "/api/v1/media?"+query, "", mediaToken(t, 1)); got.Code != 400 {
 			t.Fatal("invalid pagination accepted")
 		}
@@ -336,17 +366,26 @@ func TestMediaUploadValidation(t *testing.T) {
 }
 
 func TestMediaOptimizationAndCleanup(t *testing.T) {
-	account := auth.Account{ID: 1, Role: "user", Status: "active"}
+	account := auth.Account{
+		ID:     1,
+		Role:   "user",
+		Status: "active",
+	}
 	source, compressed := imageFixture(t, false), imageFixture(t, true)
 	uploads, repo, storage := mediaFixture(t, 1)
 	f, err := uploads.Upload(context.Background(), account, "photo.png", bytes.NewReader(source))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !f.Optimized || f.Size != int64(len(compressed)) || f.OriginalSize != int64(len(source)) || f.Width != 32 || f.Height != 24 {
+	if !f.Optimized ||
+		f.Size != int64(len(compressed)) ||
+		f.OriginalSize != int64(len(source)) ||
+		f.Width != 32 ||
+		f.Height != 24 {
 		t.Fatal("optimization metadata is incorrect")
 	}
-	if !bytes.Equal(storage.objects[f.BlobKey], compressed) || !bytes.Equal(storage.objects[f.OriginalBlobKey], source) {
+	if !bytes.Equal(storage.objects[f.BlobKey], compressed) ||
+		!bytes.Equal(storage.objects[f.OriginalBlobKey], source) {
 		t.Fatal("optimized copy or original missing")
 	}
 	storage.deleteError = errors.New("temporary blob failure")
@@ -376,7 +415,12 @@ func TestMediaOptimizationAndCleanup(t *testing.T) {
 	}
 	// A larger candidate must not replace a smaller original.
 	processor := mediaProcessor(func(ctx context.Context, input, output, kind string) error { return os.WriteFile(output, source, 0600) })
-	uploads = media.NewService(&mediaRepository{files: make(map[string]media.File)}, &mediaStorage{objects: make(map[string][]byte)}, processor, 1)
+	uploads = media.NewService(
+		&mediaRepository{files: make(map[string]media.File)},
+		&mediaStorage{objects: make(map[string][]byte)},
+		processor,
+		1,
+	)
 	f, err = uploads.Upload(context.Background(), account, "photo.png", bytes.NewReader(compressed))
 	if err != nil || f.Optimized || f.Size != int64(len(compressed)) {
 		t.Fatal("larger optimized candidate replaced the original")

@@ -41,7 +41,13 @@ func NewService(repository Repository, storage Storage, processor Processor, thr
 	if threshold <= 0 {
 		threshold = DefaultCompressionThreshold
 	}
-	return &Service{repository: repository, storage: storage, processor: processor, threshold: threshold, slots: make(chan struct{}, 2)}
+	return &Service{
+		repository: repository,
+		storage:    storage,
+		processor:  processor,
+		threshold:  threshold,
+		slots:      make(chan struct{}, 2),
+	}
 }
 
 func (s *Service) Available() bool {
@@ -55,19 +61,27 @@ func (s *Service) Upload(ctx context.Context, account auth.Account, name string,
 	if account.ID <= 0 {
 		return File{}, auth.ErrUnauthorized
 	}
-	if !utf8.ValidString(name) || len(name) < 1 || len(name) > 255 || strings.ContainsAny(name, `/\:`) || strings.IndexFunc(name, unicode.IsControl) >= 0 {
+
+	if !utf8.ValidString(name) ||
+		len(name) < 1 ||
+		len(name) > 255 ||
+		strings.ContainsAny(name, `/\:`) ||
+		strings.IndexFunc(name, unicode.IsControl) >= 0 {
 		return File{}, ErrInvalidName
 	}
+
 	ext := strings.ToLower(filepath.Ext(name))
 	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" {
 		return File{}, ErrUnsupportedType
 	}
+
 	select {
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
 	default:
 		return File{}, ErrBusy
 	}
+
 	if err := ctx.Err(); err != nil {
 		return File{}, err
 	}
@@ -85,7 +99,10 @@ func (s *Service) Upload(ctx context.Context, account auth.Account, name string,
 	}
 
 	defer source.Close()
-	size, err := io.Copy(source, io.LimitReader(&contextReader{ctx: ctx, source: input}, MaxUploadBytes+1))
+	size, err := io.Copy(source, io.LimitReader(&contextReader{
+		ctx:    ctx,
+		source: input,
+	}, MaxUploadBytes+1))
 	if err != nil {
 		return File{}, err
 	}
@@ -103,7 +120,16 @@ func (s *Service) Upload(ctx context.Context, account auth.Account, name string,
 		return File{}, ErrUnsupportedType
 	}
 
-	f := File{OwnerID: account.ID, FileName: name, ContentType: contentType, Size: size, OriginalSize: size, Width: width, Height: height}
+	f := File{
+		OwnerID:      account.ID,
+		FileName:     name,
+		ContentType:  contentType,
+		Size:         size,
+		OriginalSize: size,
+		Width:        width,
+		Height:       height,
+	}
+
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err != nil {
 		return File{}, err
@@ -142,6 +168,7 @@ func (s *Service) Upload(ctx context.Context, account auth.Account, name string,
 			f.BlobKey = prefix + "display" + ext
 		}
 	}
+
 	// The original remains private and available for lossless recovery/reprocessing.
 	keys := []string{f.OriginalBlobKey}
 	if f.Optimized {
@@ -159,6 +186,7 @@ func (s *Service) Upload(ctx context.Context, account auth.Account, name string,
 	if err != nil {
 		return File{}, s.cleanup(keys, err)
 	}
+
 	created.setURLs()
 	return created, nil
 }
@@ -186,9 +214,14 @@ func inspectImage(file *os.File) (string, int, int, error) {
 		return "", 0, 0, err
 	}
 	config, format, err := image.DecodeConfig(file)
-	if err != nil || (format != "jpeg" && format != "png") || config.Width <= 0 || config.Height <= 0 || int64(config.Width)*int64(config.Height) > MaxPixels {
+	if err != nil ||
+		(format != "jpeg" && format != "png") ||
+		config.Width <= 0 ||
+		config.Height <= 0 ||
+		int64(config.Width)*int64(config.Height) > MaxPixels {
 		return "", 0, 0, ErrInvalidImage
 	}
+
 	if format == "png" {
 		// APNG must not silently become a still image through -frames:v 1.
 		if _, err := file.Seek(8, io.SeekStart); err != nil {
@@ -211,12 +244,17 @@ func inspectImage(file *os.File) (string, int, int, error) {
 			}
 		}
 	}
+
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return "", 0, 0, err
 	}
+
 	// Decode the complete image, not just a spoofable header or MIME type.
 	decoded, actual, err := image.Decode(file)
-	if err != nil || actual != format || decoded.Bounds().Dx() != config.Width || decoded.Bounds().Dy() != config.Height {
+	if err != nil ||
+		actual != format ||
+		decoded.Bounds().Dx() != config.Width ||
+		decoded.Bounds().Dy() != config.Height {
 		return "", 0, 0, ErrInvalidImage
 	}
 	if format == "jpeg" {
@@ -280,7 +318,11 @@ func (s *Service) List(ctx context.Context, account auth.Account, limit, offset 
 	for i := range files {
 		files[i].setURLs()
 	}
-	return Page{Files: files, Limit: limit, Offset: offset}, nil
+	return Page{
+		Files:  files,
+		Limit:  limit,
+		Offset: offset,
+	}, nil
 }
 
 func (s *Service) Open(ctx context.Context, account auth.Account, id string, original bool) (File, io.ReadCloser, error) {
@@ -301,13 +343,16 @@ func (s *Service) Delete(ctx context.Context, account auth.Account, id string) e
 	if err != nil {
 		return err
 	}
+
 	// Hide the record first; retain a tombstone so storage failures can be retried.
 	if err := s.repository.MarkDeleted(ctx, id); err != nil {
 		return err
 	}
+
 	if err := s.storage.Delete(ctx, f.OriginalBlobKey); err != nil {
 		return err
 	}
+
 	if f.BlobKey != f.OriginalBlobKey {
 		return s.storage.Delete(ctx, f.BlobKey)
 	}

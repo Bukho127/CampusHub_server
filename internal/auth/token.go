@@ -46,40 +46,69 @@ func (t *Tokens) Issue(id, version int64) (TokenResponse, error) {
 	now := time.Now()
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer: TokenIssuer, Audience: jwt.ClaimStrings{TokenAudience},
-			Subject: strconv.FormatInt(id, 10), ID: hex.EncodeToString(nonce),
-			IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now),
+			Issuer:    TokenIssuer,
+			Audience:  jwt.ClaimStrings{TokenAudience},
+			Subject:   strconv.FormatInt(id, 10),
+			ID:        hex.EncodeToString(nonce),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenTTL)),
 		},
-		TokenVersion: &version, TokenUse: "access",
+		TokenVersion: &version,
+		TokenUse:     "access",
 	}
+
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(t.secret)
 	if err != nil {
 		return TokenResponse{}, err
 	}
-	return TokenResponse{AccessToken: token, TokenType: "Bearer", ExpiresIn: int64(AccessTokenTTL / time.Second), UserID: id}, nil
+	return TokenResponse{
+		AccessToken: token,
+		TokenType:   "Bearer",
+		ExpiresIn:   int64(AccessTokenTTL / time.Second),
+		UserID:      id,
+	}, nil
 }
 
 func (t *Tokens) Parse(raw string) (int64, int64, error) {
 	if len(raw) == 0 || len(raw) > 4096 {
 		return 0, 0, ErrUnauthorized
 	}
+
 	var claims Claims
-	token, err := jwt.ParseWithClaims(raw, &claims, func(token *jwt.Token) (any, error) {
-		if token.Method != jwt.SigningMethodHS256 {
-			return nil, ErrUnauthorized
-		}
-		return t.secret, nil
-	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer(TokenIssuer),
-		jwt.WithAudience(TokenAudience), jwt.WithExpirationRequired(),
-		jwt.WithIssuedAt(), jwt.WithLeeway(5*time.Second), jwt.WithStrictDecoding())
-	if err != nil || token == nil || !token.Valid ||
-		claims.TokenUse != "access" || claims.TokenVersion == nil || *claims.TokenVersion < 0 ||
-		claims.IssuedAt == nil || claims.NotBefore == nil || claims.ID == "" ||
-		claims.ExpiresAt == nil || !claims.ExpiresAt.After(claims.IssuedAt.Time) ||
+	token, err := jwt.ParseWithClaims(
+		raw,
+		&claims,
+		func(token *jwt.Token) (any, error) {
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, ErrUnauthorized
+			}
+			return t.secret, nil
+		},
+		jwt.WithValidMethods([]string{"HS256"}),
+		jwt.WithIssuer(TokenIssuer),
+		jwt.WithAudience(TokenAudience),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+		jwt.WithLeeway(5*time.Second),
+		jwt.WithStrictDecoding(),
+	)
+
+	if err != nil ||
+		token == nil ||
+		!token.Valid ||
+		claims.TokenUse != "access" ||
+		claims.TokenVersion == nil ||
+		*claims.TokenVersion < 0 ||
+		claims.IssuedAt == nil ||
+		claims.NotBefore == nil ||
+		claims.ID == "" ||
+		claims.ExpiresAt == nil ||
+		!claims.ExpiresAt.After(claims.IssuedAt.Time) ||
 		claims.ExpiresAt.Sub(claims.IssuedAt.Time) > AccessTokenTTL {
 		return 0, 0, ErrUnauthorized
 	}
+
 	id, err := strconv.ParseInt(claims.Subject, 10, 64)
 	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != claims.Subject {
 		return 0, 0, ErrUnauthorized

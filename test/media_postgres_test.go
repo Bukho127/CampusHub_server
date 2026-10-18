@@ -67,7 +67,10 @@ func TestMediaPostgres(t *testing.T) {
 		}
 	}
 	var owner int64
-	if err := tx.QueryRow(ctx, "INSERT INTO users (display_name, email) VALUES ('Media owner', 'media@example.com') RETURNING id").Scan(&owner); err != nil {
+	if err := tx.QueryRow(
+		ctx,
+		"INSERT INTO users (display_name, email) VALUES ('Media owner', 'media@example.com') RETURNING id",
+	).Scan(&owner); err != nil {
 		t.Fatal(err)
 	}
 	_, _, storage := mediaFixture(t, 1)
@@ -79,7 +82,12 @@ func TestMediaPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := server.NewRouter(users.NewService(users.NewPostgresRepository(tx)), authentication, uploads, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router := server.NewRouter(
+		users.NewService(users.NewPostgresRepository(tx)),
+		authentication,
+		uploads,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
 	token := mediaToken(t, owner)
 	response := mediaUpload(t, router, []uploadFile{{"file", "photo.png", imageFixture(t, false)}}, nil, token)
 	if response.Code != 201 {

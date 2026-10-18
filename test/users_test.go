@@ -74,7 +74,11 @@ func userRouter(repository users.Repository) http.Handler {
 	// Authorization tests use the router directly, without this test wrapper.
 	authentication, err := auth.NewService(&authRepositoryStub{
 		accountFn: func(ctx context.Context, id int64) (auth.Account, error) {
-			return auth.Account{ID: id, Role: "admin", Status: "active"}, nil
+			return auth.Account{
+				ID:     id,
+				Role:   "admin",
+				Status: "active",
+			}, nil
 		},
 	}, testTokens)
 	if err != nil {
@@ -107,14 +111,25 @@ const testPassword = "a very long test password"
 
 func userCreationBody(name, email, plaintext string) string {
 	body, _ := json.Marshal(users.Input{
-		ProfileInput: users.ProfileInput{FirstName: name, LastName: "Mabhula", DisplayName: strings.TrimSpace(name) + " Mabhula", Email: email},
-		Password:     plaintext, IdentityType: users.IdentityStudent,
+		ProfileInput: users.ProfileInput{
+			FirstName:   name,
+			LastName:    "Mabhula",
+			DisplayName: strings.TrimSpace(name) + " Mabhula",
+			Email:       email,
+		},
+		Password:     plaintext,
+		IdentityType: users.IdentityStudent,
 	})
 	return string(body)
 }
 
 func userProfileBody(name, email string) string {
-	body, _ := json.Marshal(users.ProfileInput{FirstName: name, LastName: "Mabhula", DisplayName: strings.TrimSpace(name) + " Mabhula", Email: email})
+	body, _ := json.Marshal(users.ProfileInput{
+		FirstName:   name,
+		LastName:    "Mabhula",
+		DisplayName: strings.TrimSpace(name) + " Mabhula",
+		Email:       email,
+	})
 	return string(body)
 }
 
@@ -133,9 +148,18 @@ func userBodyWith(body, field string, value any) string {
 func assertNoCredentials(t *testing.T, body []byte) {
 	t.Helper()
 	for _, field := range []string{
-		"password", "password_hash", "student_number", "verify_code_hash", "verify_code_expires", "verify_attempts",
-		"password_reset_token_hash", "password_reset_expires_at", "token_version", "campus_email",
-		"campus_email_verification_token_hash", "campus_email_verification_expires_at",
+		"password",
+		"password_hash",
+		"student_number",
+		"verify_code_hash",
+		"verify_code_expires",
+		"verify_attempts",
+		"password_reset_token_hash",
+		"password_reset_expires_at",
+		"token_version",
+		"campus_email",
+		"campus_email_verification_token_hash",
+		"campus_email_verification_expires_at",
 	} {
 		if strings.Contains(string(body), "\""+field+"\"") {
 			t.Fatalf("response exposed private field %s", field)
@@ -148,11 +172,20 @@ func assertNoCredentials(t *testing.T, body []byte) {
 
 func TestUserAPI(t *testing.T) {
 	profile := users.User{
-		ID: 42, FirstName: "Bukho", LastName: "Mabhula", DisplayName: "Bukho Mabhula", Email: "bukho@example.com",
-		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		ID:          42,
+		FirstName:   "Bukho",
+		LastName:    "Mabhula",
+		DisplayName: "Bukho Mabhula",
+		Email:       "bukho@example.com",
+		CreatedAt:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	input := users.ProfileInput{FirstName: "Bukho", LastName: "Mabhula", DisplayName: "Bukho Mabhula", Email: "bukho@example.com"}
+	input := users.ProfileInput{
+		FirstName:   "Bukho",
+		LastName:    "Mabhula",
+		DisplayName: "Bukho Mabhula",
+		Email:       "bukho@example.com",
+	}
 	body := userProfileBody("  Bukho  ", "  BUKHO@example.com  ")
 	for _, method := range []string{http.MethodPost, http.MethodGet, http.MethodPut, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {
@@ -205,7 +238,13 @@ func TestUserAPI(t *testing.T) {
 			response := userRequest(userRouter(repository), method, path, requestBody, "application/json; charset=utf-8")
 			assertNoCredentials(t, response.Body.Bytes())
 			if response.Code != wantStatus || !called {
-				t.Fatalf("status = %d, want %d; repository called = %v; body = %s", response.Code, wantStatus, called, response.Body)
+				t.Fatalf(
+					"status = %d, want %d; repository called = %v; body = %s",
+					response.Code,
+					wantStatus,
+					called,
+					response.Body,
+				)
 			}
 			if method == http.MethodDelete {
 				if response.Body.Len() != 0 {
@@ -241,18 +280,25 @@ func TestListUsers(t *testing.T) {
 		{"pagination", "?limit=5&offset=10", 5, 10},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			repository := &userRepositoryStub{t: t, listFn: func(ctx context.Context, limit, offset int) ([]users.User, error) {
-				if limit != tc.limit || offset != tc.offset {
-					t.Fatalf("pagination = %d,%d; want %d,%d", limit, offset, tc.limit, tc.offset)
-				}
-				return nil, nil
-			}}
+			repository := &userRepositoryStub{
+				t: t,
+				listFn: func(ctx context.Context, limit, offset int) ([]users.User, error) {
+					if limit != tc.limit || offset != tc.offset {
+						t.Fatalf("pagination = %d,%d; want %d,%d", limit, offset, tc.limit, tc.offset)
+					}
+					return nil, nil
+				},
+			}
 			response := userRequest(userRouter(repository), http.MethodGet, "/api/v1/users"+tc.query, "", "")
 			var page users.Page
 			if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
 				t.Fatal(err)
 			}
-			if response.Code != http.StatusOK || page.Users == nil || len(page.Users) != 0 || page.Limit != tc.limit || page.Offset != tc.offset {
+			if response.Code != http.StatusOK ||
+				page.Users == nil ||
+				len(page.Users) != 0 ||
+				page.Limit != tc.limit ||
+				page.Offset != tc.offset {
 				t.Fatalf("unexpected list response: %d %s", response.Code, response.Body)
 			}
 		})
@@ -327,9 +373,21 @@ func TestUserAPIRejectsInvalidInput(t *testing.T) {
 
 func TestUserAPIRejectsManagedFields(t *testing.T) {
 	for _, field := range []string{
-		"role", "status", "email_verified", "email_verification_status", "vendor_verification_status",
-		"campus_email_verification_status", "rating", "review_count", "token_version",
-		"verify_attempts", "verify_code_hash", "password_reset_token_hash", "ban_reason", "banned_until", "deleted_at",
+		"role",
+		"status",
+		"email_verified",
+		"email_verification_status",
+		"vendor_verification_status",
+		"campus_email_verification_status",
+		"rating",
+		"review_count",
+		"token_version",
+		"verify_attempts",
+		"verify_code_hash",
+		"password_reset_token_hash",
+		"ban_reason",
+		"banned_until",
+		"deleted_at",
 	} {
 		for _, method := range []string{"POST", "PUT"} {
 			t.Run(method+"/"+field, func(t *testing.T) {
@@ -337,7 +395,13 @@ func TestUserAPIRejectsManagedFields(t *testing.T) {
 				if method == "PUT" {
 					path, body = "/api/v1/users/42", userProfileBody("Bukho", "bukho@example.com")
 				}
-				response := userRequest(userRouter(&userRepositoryStub{t: t}), method, path, userBodyWith(body, field, "client supplied"), "application/json")
+				response := userRequest(
+					userRouter(&userRepositoryStub{t: t}),
+					method,
+					path,
+					userBodyWith(body, field, "client supplied"),
+					"application/json",
+				)
 				if response.Code != 400 {
 					t.Fatalf("managed field %s was accepted: %d", field, response.Code)
 				}

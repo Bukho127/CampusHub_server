@@ -16,9 +16,17 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish image
+    name: Publish ${{ matrix.component }} image
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: api
+            image_suffix: ""
+          - component: valkey
+            image_suffix: "-valkey"
 
     steps:
       - name: Check out repository
@@ -28,7 +36,9 @@ jobs:
 
       # GHCR image names must be lowercase, but the repo name has capitals.
       - name: Set lowercase image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+        env:
+          IMAGE_SUFFIX: ${{ matrix.image_suffix }}
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}${IMAGE_SUFFIX}" >> "$GITHUB_ENV"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -53,8 +63,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile
+          target: ${{ matrix.component }}
+          pull: true
+          no-cache-filters: ${{ matrix.component }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
