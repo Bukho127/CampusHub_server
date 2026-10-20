@@ -288,9 +288,19 @@ func TestUserAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The test cases below cover the following scenarios:
+	// - Missing or malformed token
+	// - Owner can read, update, delete their own profile
+	// - Other users cannot read, update, delete another user's profile
+	// - Users and vendors cannot list all users
+	// - Admins can list all users and read, update, delete any user's profile
 	for _, tc := range []struct {
-		name, method, path, role, token string
-		status                          int
+		name   string
+		method string
+		path   string
+		role   string
+		token  string
+		status int
 	}{
 		{"missing token", "GET", "/api/v1/users/42", "user", "", 401},
 		{"malformed token", "GET", "/api/v1/users/42", "user", "invalid", 401},

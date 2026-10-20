@@ -309,8 +309,12 @@ func TestUserAPIRejectsInvalidInput(t *testing.T) {
 	valid := userCreationBody("Bukho", "bukho@example.com", testPassword)
 	profile := userProfileBody("Bukho", "bukho@example.com")
 	for _, tc := range []struct {
-		name, method, path, body, contentType string
-		status                                int
+		name        string
+		method      string
+		path        string
+		body        string
+		contentType string
+		status      int
 	}{
 		{"malformed JSON", "POST", "/api/v1/users", "{", "application/json", 400},
 		{"empty body", "POST", "/api/v1/users", "", "application/json", 400},
